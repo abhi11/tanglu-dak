@@ -32,8 +32,7 @@ beloging to a given suite.
 
 ###########################################################################
 
-from apt_inst import DebFile
-import lxml.etree as et
+import apt_pkg
 import yaml
 import re
 import sys
@@ -45,6 +44,8 @@ import shutil
 import datetime
 import os
 import os.path
+import lxml.etree as et
+from apt_inst import DebFile
 from PIL import Image
 from subprocess import CalledProcessError
 from check_appdata import *
@@ -89,9 +90,9 @@ class DEP11Metadata():
 
 def usage():
     print("""Usage: dak generate_metadata -s <suitename> [OPTION]
-Generate DEP-11 metadata for the specified suite.
+Extract DEP-11 metadata for the specified suite.
 
-  -C, --clear-cache   use this option to clear stale DEP-11 cached data.
+  -e, --expire-cache   Clear the icon/screenshot cache from stale data.
     """)
 
 # for python2.7 not required for python3
@@ -1057,7 +1058,7 @@ def write_component_files(suite,suitename):
             head_string = yaml.dump(dep11_header, Dumper=DEP11YAMLDumper,
                                     default_flow_style=False, explicit_start=True,
                                     explicit_end=False, width=100, indent=2)
-            values = { 
+            values = {
                 'archive' : suite.archive.path,
                 'suite' : suitename,
                 'component' : component,
@@ -1076,28 +1077,34 @@ def write_component_files(suite,suitename):
 
 
 def main():
-    if len(sys.argv) < 2:
+    cnf = Config()
+
+    Arguments = [('h',"help","DEP11::Options::Help"),
+                 ('e',"expire","DEP11::Options::ExpireCache"),
+                 ('s',"suite","DEP11::Options::Suite", "HasArg"),
+                 ]
+    for i in ["help", "suite", "ExpireCache"]:
+        if not cnf.has_key("DEP11::Options::%s" % (i)):
+            cnf["DEP11::Options::%s" % (i)] = ""
+
+    arguments = apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
+    Options = cnf.subtree("DEP11::Options")
+
+    if Options["Help"]:
         usage()
         return
-    args = sys.argv
 
-    # sanity checks
-    if '-s' in args:
-        i = args.index('-s')
-        suitename = args[i+1]
-        if suitename == '-C' or suitename == '--clear-cache':
-            usage()
-            return
-    else:
-        usage()
+    suitename = Options["Suite"]
+    if not suitename:
+        print("You need to specify a suite!")
         return
-
-    if '-C' in args or '--clear-cache' in args:
-        clear_cached_dep11_data(suitename)
 
     from daklib.dbconn import Component, DBConn, get_suite, Suite
     session = DBConn().session()
     suite = get_suite(suitename.lower(), session)
+
+    if Options["ExpireCache"]:
+        clear_cached_dep11_data(session, suitename)
 
     global logfile
     global dep11_header

@@ -33,6 +33,7 @@ import psycopg2
 from daklib.dak_exceptions import DBUpdateError
 from daklib.config import Config
 from daklib.dbconn import *
+
 statements = [
     """
     CREATE TABLE bin_dep11(id SERIAL PRIMARY KEY,
@@ -49,7 +50,6 @@ statements = [
 ]
 
 ##############################################################################
-
 
 def do_update(self):
     print __doc__

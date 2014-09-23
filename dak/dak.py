@@ -151,6 +151,8 @@ def init():
          "Generate a list of override disparities"),
         ("external-overrides",
          "Modify external overrides"),
+        ("generate-metadata",
+         "Extract DEP-11 metadata about components shipped with packages"),
         ]
     return functionality
 

@@ -411,7 +411,7 @@ class BinDEP11Data():
         sql = """
         select bd.metadata
         from
-        bin_dep11 bd, binaries b, bin_associations ba, suite s, 
+        bin_dep11 bd, binaries b, bin_associations ba, suite s,
         override o, component c, architecture a
         where bd.ignore = FALSE and bd.binary_id = b.id and b.package = o.package
         and o.component = c.id and c.name = :component and b.id = ba.bin
@@ -422,25 +422,24 @@ class BinDEP11Data():
         result = self._session.execute(sql, self._params)
         rows = result.fetchall()
         return rows
-    
+
     def close(self):
         """
         Closes the session
         """
         self._session.close()
 
-        
+
 
 
 
 ############################################################################
 
 
-def clear_cached_dep11_data(suitename):
+def clear_cached_dep11_data(session, suitename):
     '''
     Clears the stale cache per suite.
     '''
-    session = DBConn().session()
     # dic that has pkg name as key and bin_ids as values in a list,
     # these are not to be deleted
     do_not_clear_list = {}
