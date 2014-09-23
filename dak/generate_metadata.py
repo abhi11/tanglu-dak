@@ -867,7 +867,7 @@ class ContentGenerator:
         path = template % values
         path = "%s%s-%s/icons/" % \
                (path, self._cdata._pkg, str(self._cdata._binid))
-        icon_name = icon.split('/').pop()
+        icon_name = "%s_%s" % (str(self._cdata._binid), os.path.basename(icon))
         self._cdata.icon = icon_name
         # filepath is checked because icon can reside in another binary
         # eg amarok's icon is in amarok-data
