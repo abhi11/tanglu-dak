@@ -585,7 +585,7 @@ class MetaDataExtractor:
         for usubs in subs:
             # for one screeshot tag
             if usubs.tag == 'screenshot':
-                screenshot = {}
+                screenshot = dict()
                 attr_dic = usubs.attrib
                 if attr_dic.get('type'):
                     if attr_dic['type'] == 'default':
@@ -616,7 +616,9 @@ class MetaDataExtractor:
                     if tags.tag == 'image':
                         screenshot['source-image'] = {'url': tags.text}
 
-                shots.append(screenshot)
+                # only add the screenshot if we have a source image
+                if screenshot.get ('source-image'):
+                    shots.append(screenshot)
 
         return shots
 
