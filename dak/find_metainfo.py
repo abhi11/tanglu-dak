@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Checks binaries with a .desktop file or an appdata-xml file.
+Checks binaries with a .desktop file or an AppStream upstream XML file.
 Generates a dict with package name and associated appdata in
 a list as value.
 Finds icons for packages with missing icons.
