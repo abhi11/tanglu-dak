@@ -49,6 +49,8 @@ from apt_inst import DebFile
 from PIL import Image
 from subprocess import CalledProcessError
 from check_appdata import *
+
+from daklib import daklog
 from daklib.daksubprocess import call, check_call
 from daklib.filewriter import DEP11DataFileWriter
 from daklib.config import Config
@@ -57,7 +59,6 @@ from daklib.dbconn import *
 ###########################################################################
 DEP11_VERSION = "0.6"
 time_str = str(datetime.date.today())
-logfile = None
 dep11_header = {
     "File": "DEP-11",
     "Version": DEP11_VERSION
@@ -817,8 +818,9 @@ class ContentGenerator:
             shots = []
             cnt = 1
             for shot in self._cdata.screenshots:
+                origin_url = shot['source-image']['url']
                 try:
-                    image = urllib.urlopen(shot['source-image']['url']).read()
+                    image = urllib.urlopen(origin_url).read()
                     template = (Config()["Dir::MetaInfo"] +
                                 "%(suite)s/%(component)s/")
                     path = template % values
@@ -842,7 +844,7 @@ class ContentGenerator:
                     shot['thumbnails'] = self.scale_screenshots(
                         '%ssource/screenshot-%s.png' % (path, str(cnt)), path)
                     shots.append(shot)
-                    print("Screenshot saved...")
+                    print("New screenshot cached from %s" % (origin_url))
                     cnt = cnt + 1
                 except:
                     success.append(False)
@@ -869,7 +871,7 @@ class ContentGenerator:
             try:
                 icon_data = DebFile(filepath).data.extractdata(icon)
             except Exception as e:
-                print("Error while extracting icon (%s): %s" % (filepath, e))
+                print("Error while extracting icon '%s': %s" % (filepath, e))
                 return False
 
             if icon_data:
@@ -986,14 +988,12 @@ def process_suite(suite):
     '''
     path = Config()["Dir::Pool"]
 
-    print("Reading data...")
     for component in [ c.component_name for c in suite.components ]:
         datalist = appdata()
         # datalist.find_desktop(component=component,suitename=suitename)
         # datalist.find_xml(component=component,suitename=suitename)
         datalist.find_meta_files(component=component, suitename=suite.suite_name)
         datalist.close()
-        print("data read complete")
 
         desk_dic = datalist._deskdic
         xml_dic = datalist._xmldic
@@ -1019,7 +1019,12 @@ def process_suite(suite):
             pool = MetadataPool(values)
 
             for key in datalist.arch_deblist[arch]:
-                print("Processing deb: %s" % (key))
+                package_fname = "%s/%s" % (path, key)
+                if not os.path.exists(package_fname):
+                    print('Package not found: %s' % (package_fname))
+                    continue
+                print("Processing package: %s" % (key))
+
                 xmlfiles = []
                 deskfiles = []
                 if xml_dic:
@@ -1028,30 +1033,27 @@ def process_suite(suite):
                     deskfiles = desk_dic.get(key)
 
                 # loop over all_dic to find metadata of all the debian packages
-                if os.path.exists(path+key):
-                    mde = MetaDataExtractor(path+key, xmlfiles, deskfiles)
-                    filelist = mde.filelist()
-                    cd_list = mde.read_metadata(suite.suite_name, component,
-                                                str(info_dic[key]),
-                                                filelist, pkg_list[key])
-                    pool.append_compdata(cd_list)
-                else:
-                    print('Invalid path %s' % (path+key))
+                mde = MetaDataExtractor(package_fname, xmlfiles, deskfiles)
+                filelist = mde.filelist()
+                cd_list = mde.read_metadata(suite.suite_name, component,
+                                            str(info_dic[key]),
+                                            filelist, pkg_list[key])
+                pool.append_compdata(cd_list)
 
             # Save metadata of all binaries of the Components-arch
             # This would require a lock
             pool.saver()
 
         make_icon_tar(suite.suite_name, component)
-        print("Done with component %s in suite %s" % (component, suite.suite_name))
+        print("Processed packages in suite %s/%s" % (suite.suite_name, component))
 
 
-def write_component_files(suite,suitename):
+def write_component_files(suite):
     '''
     Writes the metadata into Component-<arch>.xz
     Ignores if ignore is True in the db
     '''
-    print("Writing files")
+    print("Writing DEP-11 files for %s" % (suite.suite_name))
     for component in [ c.component_name for c in suite.components ]:
         # writing per <arch>
         for arch in __arch__[component]:
@@ -1060,11 +1062,11 @@ def write_component_files(suite,suitename):
                                     explicit_end=False, width=100, indent=2)
             values = {
                 'archive' : suite.archive.path,
-                'suite' : suitename,
+                'suite' : suite.suite_name,
                 'component' : component,
                 'architecture' : arch
             }
-            print(values)
+            print("DEBUG: %s"  % (values))
             writer = DEP11DataFileWriter(**values)
             ofile = writer.open()
             ofile.write(head_string)
@@ -1106,17 +1108,12 @@ def main():
     if Options["ExpireCache"]:
         clear_cached_dep11_data(session, suitename)
 
-    global logfile
     global dep11_header
-    logfile = open("{0}genmeta-{1}.txt".format(
-        Config()["Dir::Log"], time_str), 'w')
     dep11_header["Origin"] = suitename
 
     process_suite(suite)
     # write_bin_dep11
     write_component_files(suite,suitename)
-
-    logfile.close()
 
 if __name__ == "__main__":
     main()

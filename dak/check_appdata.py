@@ -444,7 +444,7 @@ def clear_cached_dep11_data(session, suitename):
     # these are not to be deleted
     do_not_clear_list = {}
     dir_list = []
-    print("clearing stale cached data...")
+    print("Clearing stale cached data...")
     # select all the binids with a package-name
     # (select all package-name from binaries)
     sql = """select bd.binary_id,b.package
@@ -473,10 +473,10 @@ def clear_cached_dep11_data(session, suitename):
     # (removes screenshots and icons)
     for d in dir_list:
         if os.path.exists(d):
-            print("removed: ", d)
+            print("Removing DEP-11 cache directory: %s" % (d))
             rmtree(d)
 
-    print("cache cleared.")
+    print("Cache pruned.")
 
 
 #############################################################################
