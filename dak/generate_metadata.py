@@ -977,69 +977,54 @@ def make_icon_tar(suitename, component):
 
     tar.close()
 
-# defining a __arch__ dict. Lists archs per component.
-# Used while wroiting metatdata.
-__arch__ = {}
-
-
-def process_suite(suite):
+def process_suite(session, suite):
     '''
     Run by main to loop for different component and architecture.
     '''
     path = Config()["Dir::Pool"]
 
     for component in [ c.component_name for c in suite.components ]:
-        datalist = appdata()
-        # datalist.find_desktop(component=component,suitename=suitename)
-        # datalist.find_xml(component=component,suitename=suitename)
-        datalist.find_meta_files(component=component, suitename=suite.suite_name)
-        datalist.close()
+        mif = MetaInfoFinder(session)
+        pkglist = mif.find_meta_files(component=component, suitename=suite.suite_name)
 
-        desk_dic = datalist._deskdic
-        xml_dic = datalist._xmldic
+        values = {
+            'archive': suite.archive.path,
+            'suite': suite.suite_name,
+            'component': component,
+        }
 
-        info_dic = datalist._idlist
-        pkg_list = datalist._pkglist
+        data_pools = dict()
 
-        for arch in datalist.arch_deblist.iterkeys():
-            values = {
-                'archive': suite.archive.path,
-                'suite': suite.suite_name,
-                'component': component,
-                'architecture': arch,
-            }
-
-            # populating arch[component] list
-            if __arch__.get(component):
-                if arch not in __arch__[component]:
-                    __arch__[component].append(arch)
-            else:
-                __arch__[component] = [arch]
-
-            pool = MetadataPool(values)
-
-            for key in datalist.arch_deblist[arch]:
-                package_fname = "%s/%s" % (path, key)
+        for pkgname, pkg in pkglist.items():
+            for arch, data in pkg.items():
+                if not data_pools.get(arch):
+                    values['architecture'] = arch
+                    pool = MetadataPool(values)
+                else:
+                    pool = data_pools[arch]
+                package_fname = os.path.join (path, data['filename'])
                 if not os.path.exists(package_fname):
                     print('Package not found: %s' % (package_fname))
                     continue
-                print("Processing package: %s" % (key))
+                print("Processing package: %s (%s)" % (pkgname, arch))
 
-                xmlfiles = []
-                deskfiles = []
-                if xml_dic:
-                    xmlfiles = xml_dic.get(key)
-                if desk_dic:
-                    deskfiles = desk_dic.get(key)
+                # FIXME: Temporary, this should go...
+                xmlfiles = list()
+                dfiles = list()
+                for f in data['files']:
+                    if f.endswith(".desktop"):
+                        dfiles.append(f)
+                    else:
+                        xmlfiles.append(f)
 
                 # loop over all_dic to find metadata of all the debian packages
-                mde = MetaDataExtractor(package_fname, xmlfiles, deskfiles)
+                mde = MetaDataExtractor(package_fname, xmlfiles, dfiles)
                 filelist = mde.filelist()
                 cd_list = mde.read_metadata(suite.suite_name, component,
-                                            str(info_dic[key]),
-                                            filelist, pkg_list[key])
-                pool.append_compdata(cd_list)
+                                            data['binid'],
+                                            filelist, pkgname)
 
+        for pool in data_pools.values():
             # Save metadata of all binaries of the Components-arch
             # This would require a lock
             pool.saver()
@@ -1056,7 +1041,7 @@ def write_component_files(suite):
     print("Writing DEP-11 files for %s" % (suite.suite_name))
     for component in [ c.component_name for c in suite.components ]:
         # writing per <arch>
-        for arch in __arch__[component]:
+        for arch in [ a.architecture_name for a in suite.architectures ]:
             head_string = yaml.dump(dep11_header, Dumper=DEP11YAMLDumper,
                                     default_flow_style=False, explicit_start=True,
                                     explicit_end=False, width=100, indent=2)
@@ -1152,7 +1137,7 @@ def main():
     global dep11_header
     dep11_header["Origin"] = suite.suite_name
 
-    process_suite(suite)
+    process_suite(session, suite)
     # write_bin_dep11
     write_component_files(suite)
 

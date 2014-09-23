@@ -41,46 +41,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 
-class appdata:
-    def __init__(self, connstr=None):
+class MetaInfoFinder:
+    def __init__(self, session):
         '''
         Initialize the variables and create a session.
         '''
-        if connstr:
-            self._constr = connstr
-            self._engine = create_engine(self._constr)
-            Session = sessionmaker(bind=self._engine)
-            self._session = Session()
-        else:
-            # using Config
-            self._constr = ''
-            self._engine = None
-            self._session = DBConn().session()
-        self._idlist = {}
-        self._deskdic = {}
-        self._xmldic = {}
-        self._commdic = {}
-        self.arch_deblist = {}
-        self._pkglist = {}
 
-    def create_session(self, connstr):
-        '''
-        Establishes a session if it is not initialized during __init__.
-        '''
-        if connstr:
-            engine = create_engine(connstr)
-            Session = sessionmaker(bind=engine)
-            return Session()
-        else:
-            print("Connection string invalid!")
-            return None
+        self._session = session
 
-    def find_meta_files(self, component, suitename, session=None):
+    def find_meta_files(self, component, suitename):
         '''
         Find binaries with a .desktop files and/or .xml files.
         '''
-        if session:
-            self._session = session
 
         params = {
             'component': component,
@@ -133,215 +105,33 @@ class appdata:
         """
         '''
 
+        # FIXME: We get only one hit for one arch for some reason...
         result = self._session.query("file", "filename", "name", "id",
                                      "arch_string", "package")\
                               .from_statement(sql).params(params)
 
         # create a dict with packagename:[.desktop and/or .xml files]
 
+        interesting_pkgs = dict()
         for r in result:
-            key = '%s/%s' % (r[2], r[1])
-            if self.arch_deblist.get(r[4]):
-                if key not in self.arch_deblist[r[4]]:
-                    self._idlist[key] = r[3]
-                    self._pkglist[key] = r[5]
-                    self.arch_deblist[r[4]].append(key)
-            else:
-                self.arch_deblist[r[4]] = [key]
-                self._idlist[key] = r[3]
-                self._pkglist[key] = r[5]
+            fname = '%s/%s' % (r[2], r[1])
+            pkg_name = r[5]
+            arch_name = r[4]
+            if not interesting_pkgs.get(pkg_name):
+                interesting_pkgs[pkg_name] = dict()
+            pkg = interesting_pkgs[pkg_name]
+            if not pkg.get(arch_name):
+                pkg[arch_name] = dict()
 
-            if r[0].endswith('.desktop'):
-                if self._deskdic.get(key):
-                    self._deskdic[key].append(r[0])
-                else:
-                    self._deskdic[key] = [r[0]]
+            pkg[arch_name]['filename'] = fname
+            pkg[arch_name]['binid'] = r[3]
+            if not pkg[arch_name].get('files'):
+                pkg[arch_name]['files'] = list()
+            ifiles = pkg[arch_name]['files']
+            ifiles.append(r[0])
 
-            if r[0].endswith('.xml'):
-                if self._xmldic.get(key):
-                    self._xmldic[key].append(r[0])
-                else:
-                    self._xmldic[key] = [r[0]]
+        return interesting_pkgs
 
-    def find_desktop(self, component, suitename, session=None):
-        '''
-        Find binaries with a .desktop file. To be used when, just
-        the .desktop files are required.
-        '''
-        if session:
-            self._session = session
-
-        params = {
-            'component': component,
-            'suitename': suitename
-            }
-
-        # SQL logic:
-        # select all the binaries that have a .desktop file
-        sql = """
-        with
-        req_data as
-        ( select distinct on(b.package) f.filename, c.name,
-        b.id, a.arch_string, b.package
-        from
-        binaries b, bin_associations ba, suite s, files f,
-        override o, component c, architecture a
-        where b.type = 'deb' and b.file = f.id and b.package = o.package
-        and o.component = c.id and c.name = :component and b.id = ba.bin
-        and ba.suite = s.id and s.suite_name = :suitename and
-        b.architecture = a.id order by b.package, b.version desc)
-
-        select bc.file,rd.filename,rd.name,rd.id,rd.arch_string,rd.package
-        from bin_contents bc,req_data rd
-        where  bc.file like
-        'usr/share/applications/%.desktop' and bc.binary_id = rd.id
-        """
-
-        result = self._session.query("file", "filename", "name", "id",
-                                     "arch_string", "package")\
-                              .from_statement(sql).params(params)
-
-        # create a dict with packagename:[.desktop files]
-        for r in result:
-            key = '%s/%s' % (r[2], r[1])
-            if self.arch_deblist.get(r[4]):
-                if key not in self.arch_deblist[r[4]]:
-                    self._idlist[key] = r[3]
-                    self._pkglist[key] = r[5]
-                    self.arch_deblist[r[4]].append(key)
-            else:
-                self.arch_deblist[r[4]] = [key]
-                self._idlist[key] = r[3]
-                self._pkglist[key] = r[5]
-
-            if self._deskdic.get(key):
-                self._deskdic[key].append(r[0])
-            else:
-                self._deskdic[key] = [r[0]]
-
-    def find_xml(self, component, suitename, session=None):
-        '''
-        Find binaries with a .xml file.To be used when, just
-        the .xml files are
-        '''
-        if session:
-            self._session = session
-
-        params = {
-            'component': component,
-            'suitename': suitename
-            }
-
-        # SQL logic:
-        # select all the binaries that have a .xml file
-        sql = """
-        with
-        req_data as
-        ( select distinct on(b.package) f.filename, c.name,
-        b.id, a.arch_string, b.package
-        from
-        binaries b, bin_associations ba, suite s, files f,
-        override o, component c, architecture a
-        where b.type = 'deb' and b.file = f.id and b.package = o.package
-        and o.component = c.id and c.name = :component and b.id = ba.bin
-        and ba.suite = s.id and s.suite_name = :suitename and
-        b.architecture = a.id order by b.package, b.version desc)
-
-        select bc.file,rd.filename,rd.name,rd.id,rd.arch_string,rd.package
-        from bin_contents bc,req_data rd
-        where  bc.file like 'usr/share/appdata/%.xml' and bc.binary_id = rd.id
-        """
-
-        result = self._session.query("file", "filename", "name", "id",
-                                     "arch_string", "package")\
-                              .from_statement(sql).params(params)
-
-        # create a dict with package:[.xml files]
-        for r in result:
-            key = '%s/%s' % (r[2], r[1])
-            if self.arch_deblist.get(r[4]):
-                if key not in self.arch_deblist[r[4]]:
-                    self._idlist[key] = r[3]
-                    self._pkglist[key] = str(r[5])
-                    self.arch_deblist[str(r[4])].append(key)
-            else:
-                self.arch_deblist[str(r[4])] = [key]
-                self._idlist[key] = str(r[3])
-                self._pkglist[key] = str(r[5])
-
-            if self._xmldic.get(key):
-                self._xmldic[key].append(r[0])
-            else:
-                self._xmldic[key] = [r[0]]
-
-    def find_essentials(self, component, suitename, session=None):
-        '''
-        Only fetches the necessary data for processing
-        binary_id, filename, arch_string
-        '''
-
-        if session:
-            self._session = session
-
-        params = {
-            'component': component,
-            'suitename': suitename
-            }
-
-        # SQL logic:
-        sql = """SELECT distinct on (b.package) f.filename, c.name, b.id,
-        a.arch_string, b.package
-        from binaries b, bin_associations ba, suite s, files f,override o,
-        component c, architecture a
-        where b.type = 'deb' and b.file = f.id and o.package = b.package
-        and o.component = c.id and c.name = :component and b.id = ba.bin
-        and b.architecture = a.id and ba.suite = s.id and
-        s.suite_name = :suitename
-        order by b.package, b.version desc
-        """
-
-        result = self._session.execute(sql, params)
-        rows = result.fetchall()
-
-        for r in rows:
-            # Every r will have an unique key(component/filename)
-            key = '%s/%s' % (r[2], r[1])
-            # if arch is already present
-            if self.arch_deblist.get(r[3]):
-                self._idlist[key] = r[2]
-                self._pkglist[key] = r[4]
-                self.arch_deblist[r[3]].append(key)
-            # New arch
-            else:
-                self._idlist[key] = r[2]
-                self._pkglist[key] = r[4]
-                self.arch_deblist[r[3]] = [key]
-
-    def comb_appdata(self):
-        '''
-        Combines both dictionaries and creates a new list with
-        all the metdata (i.e the .desktop as well as .xml files.
-        '''
-        # copy the .desktop files dict
-        self._commdic = self._deskdic
-
-        for key, li in self._xmldic.iteritems():
-            # if package already in list just append the xml files
-            try:
-                self._commdic[key] += li
-            # else create a new entry for the package
-            except KeyError:
-                self._commdic[key] = li
-
-    def printfiles(self):
-        '''
-        Prints the commdic,
-        '''
-        for k, l in self._commdic.iteritems():
-            print(k + ': ', l)
-
-    def close(self):
-        self._session.close()
 
 ###########################################################################
 
