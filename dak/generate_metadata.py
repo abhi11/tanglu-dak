@@ -48,7 +48,7 @@ import lxml.etree as et
 from apt_inst import DebFile
 from PIL import Image
 from subprocess import CalledProcessError
-from check_appdata import *
+from find_metainfo import *
 
 from daklib import daklog
 from daklib.daksubprocess import call, check_call
@@ -1109,11 +1109,11 @@ def main():
         clear_cached_dep11_data(session, suitename)
 
     global dep11_header
-    dep11_header["Origin"] = suitename
+    dep11_header["Origin"] = suite.suite_name
 
     process_suite(suite)
     # write_bin_dep11
-    write_component_files(suite,suitename)
+    write_component_files(suite)
 
 if __name__ == "__main__":
     main()
