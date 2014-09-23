@@ -1077,6 +1077,47 @@ def write_component_files(suite):
             dep11_data.close()
             writer.close()
 
+def expire_dep11_data_cache(session, suitename):
+    '''
+    Clears the stale cache items per suite.
+    '''
+    # dic that has pkg name as key and bin_ids as values in a list,
+    # these are not to be deleted
+    do_not_clear_list = {}
+    dir_list = []
+    print("Clearing stale cached data...")
+    # select all the binids with a package-name
+    # (select all package-name from binaries)
+    sql = """select bd.binary_id,b.package
+    from bin_dep11 bd, binaries b
+    where b.id = bd.binary_id"""
+
+    q = session.execute(sql)
+    result = q.fetchall()
+    for r in result:
+        if do_not_clear_list.get(r[1]):
+            do_not_clear_list[r[1]].append(str(r[0]))
+        else:
+            do_not_clear_list[r[1]] = [str(r[0])]
+
+    for pkg in do_not_clear_list.iterkeys():
+        for i in glob.glob("%s%s/*/%s*/" % (Config()["Dir::MetaInfo"],
+                                            suitename, pkg)):
+            true = [True if "-"+binid not in i else False
+                    for binid in do_not_clear_list[pkg]]
+
+            # delete this directiory as the pkg-binid does not exist
+            if all(true):
+                dir_list.append(i)
+
+    # remove the directories that are no longer required
+    # (removes screenshots and icons)
+    for d in dir_list:
+        if os.path.exists(d):
+            print("Removing DEP-11 cache directory: %s" % (d))
+            rmtree(d)
+
+    print("Cache pruned.")
 
 def main():
     cnf = Config()
@@ -1106,7 +1147,7 @@ def main():
     suite = get_suite(suitename.lower(), session)
 
     if Options["ExpireCache"]:
-        clear_cached_dep11_data(session, suitename)
+        expire_dep11_data_cache(session, suitename)
 
     global dep11_header
     dep11_header["Origin"] = suite.suite_name
