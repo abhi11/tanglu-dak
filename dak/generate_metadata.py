@@ -393,15 +393,6 @@ class MetaDataExtractor:
         self._mfiles = metainfo_files
         self._binid = binid
 
-        # FIXME: Temporary, this should go...
-        self._loxml = list()
-        self._lodesk = list()
-        for f in metainfo_files:
-            if f.endswith(".desktop"):
-                self._lodesk.append(f)
-            else:
-                self._loxml.append(f)
-
     def _deb_filelist(self):
         '''
         Returns a list of all files in a deb package
@@ -412,8 +403,9 @@ class MetaDataExtractor:
         try:
             self._deb.data.go(lambda item, data: files.append(item.name))
         except SystemError:
-            return [_("List of files for '%s' could not be read") %
-                    self._filename]
+            print ("ERROR: List of files for '%s' could not be read" % (self._filename))
+            return None
+
         return files
 
     def _strip_comment(self, line=None):
@@ -708,15 +700,24 @@ class MetaDataExtractor:
         Reads the metadata from the xml file and the desktop files.
         And returns a list of ComponentData objects.
         '''
-        suitename = self._suite.suite_name
-        filelist = self._deb_filelist()
-        component_dict = dict()
         if not self._deb:
             return list()
+        suitename = self._suite.suite_name
+        filelist = self._deb_filelist()
+        if not filelist:
+            print("Could not determine file list for '%s'" % (self._filename))
+            return list()
+
+        component_dict = dict()
         # Reading xml files and associated .desktop
         for meta_file in self._mfiles:
             if meta_file.endswith(".xml"):
-                xml_content = str(self._deb.data.extractdata(meta_file))
+                xml_content = None
+                try:
+                    xml_content = str(self._deb.data.extractdata(meta_file))
+                except Exception as e:
+                    print("Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e)))
+                    continue
                 if xml_content:
                     # xml file is broken,read next xml file
                     compdata = ComponentData(suitename, self._component, self._binid,
@@ -730,7 +731,12 @@ class MetaDataExtractor:
                         compdata.ignore = True
             else:
                 # We have a .desktop file
-                dcontent = self._deb.data.extractdata(meta_file)
+                dcontent = None
+                try:
+                    dcontent = str(self._deb.data.extractdata(meta_file))
+                except Exception as e:
+                    print("Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e)))
+                    continue
                 if not dcontent:
                     continue
                 cpt_id = os.path.basename(meta_file)
