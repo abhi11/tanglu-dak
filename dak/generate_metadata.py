@@ -376,20 +376,33 @@ class MetaDataExtractor:
     Takes a deb file and extracts component metadata from it.
     '''
 
-    def __init__(self, filename, xml_list=None, desk_list=None):
+    def __init__(self, suite, component, pkgname, metainfo_files, binid, pkg_fname):
         '''
         Initialize the object with List of files.
         '''
-        self._filename = filename
+        self._filename = pkg_fname
         self._deb = None
         try:
-            self._deb = DebFile(filename)
+            self._deb = DebFile(self._filename)
         except Exception as e:
-            print ("Error reading deb file '%s': %s" % (filename , e))
-        self._loxml = xml_list
-        self._lodesk = desk_list
+            print ("Error reading deb file '%s': %s" % (self._filename , e))
 
-    def filelist(self):
+        self._suite = suite
+        self._component = component
+        self._pkgname = pkgname
+        self._mfiles = metainfo_files
+        self._binid = binid
+
+        # FIXME: Temporary, this should go...
+        self._loxml = list()
+        self._lodesk = list()
+        for f in metainfo_files:
+            if f.endswith(".desktop"):
+                self._lodesk.append(f)
+            else:
+                self._loxml.append(f)
+
+    def _deb_filelist(self):
         '''
         Returns a list of all files in a deb package
         '''
@@ -400,10 +413,10 @@ class MetaDataExtractor:
             self._deb.data.go(lambda item, data: files.append(item.name))
         except SystemError:
             return [_("List of files for '%s' could not be read") %
-                    self.filename]
+                    self._filename]
         return files
 
-    def notcomment(self, line=None):
+    def _strip_comment(self, line=None):
         '''
         checks whether a line is a comment on .desktop file.
         '''
@@ -418,21 +431,13 @@ class MetaDataExtractor:
                     return line
         return line
 
-    def find_id(self, dfile=None):
-        '''
-        Takes an absolute path as a string and
-        returns the filename from the absolute path.
-        '''
-        li = dfile.split('/')
-        return li.pop()
-
-    def read_desktop(self, dcontent, compdata):
+    def _read_desktop(self, dcontent, compdata):
         '''
         Parses a .desktop file and sets ComponentData properties
         '''
         lines = dcontent.splitlines()
         for line in lines:
-            line = self.notcomment(line)
+            line = self._strip_comment(line)
             if line:
                 # spliting into key-value pairs
                 tray = line.split("=", 1)
@@ -536,7 +541,7 @@ class MetaDataExtractor:
         s = " ".join(s.split())
         return s
 
-    def parse_description_tag(self, subs):
+    def _parse_description_tag(self, subs):
         '''
         Handles the description tag
         '''
@@ -580,7 +585,7 @@ class MetaDataExtractor:
                     dic[k] += "</%s>" % usubs.tag
         return dic
 
-    def parse_screenshots_tag(self, subs):
+    def _parse_screenshots_tag(self, subs):
         '''
         Handles screenshots.Caption source-image etc.
         '''
@@ -623,7 +628,7 @@ class MetaDataExtractor:
 
         return shots
 
-    def read_xml(self, xml_content, compdata):
+    def _read_xml(self, xml_content, compdata):
         '''
         Reads the appdata from the xml file in usr/share/appdata.
         Sets ComponentData properties
@@ -642,11 +647,11 @@ class MetaDataExtractor:
                 compdata.ID = subs.text
 
             if subs.tag == "description":
-                desc = self.parse_description_tag(subs)
+                desc = self._parse_description_tag(subs)
                 compdata.description = desc
 
             if subs.tag == "screenshots":
-                screen = self.parse_screenshots_tag(subs)
+                screen = self._parse_screenshots_tag(subs)
                 compdata.screenshots = screen
 
             if subs.tag == "provides":
@@ -698,55 +703,48 @@ class MetaDataExtractor:
                 else:
                     compdata.compulsory_for_desktop = [subs.text]
 
-    def read_metadata(self, suitename, component, binid, filelist, pkg):
+    def get_cptdata(self):
         '''
         Reads the metadata from the xml file and the desktop files.
         And returns a list of ComponentData objects.
         '''
-        component_list = list()
+        suitename = self._suite.suite_name
+        filelist = self._deb_filelist()
+        component_dict = dict()
         if not self._deb:
-            return component_list
+            return list()
         # Reading xml files and associated .desktop
-        if self._loxml:
-            for meta_file in self._loxml:
+        for meta_file in self._mfiles:
+            if meta_file.endswith(".xml"):
                 xml_content = str(self._deb.data.extractdata(meta_file))
                 if xml_content:
                     # xml file is broken,read next xml file
-                    compdata = ComponentData(suitename, component, binid,
-                                             self._filename, filelist, pkg)
-                    self.read_xml(xml_content, compdata)
+                    compdata = ComponentData(suitename, self._component, self._binid,
+                                             self._filename, filelist, self._pkgname)
+                    self._read_xml(xml_content, compdata)
                     # Reads the desktop files associated with the xml file
                     if compdata.ID:
-                        if('.desktop' in compdata.ID) and self._lodesk:
-                            for dfile in self._lodesk:
-                                # for desktop file matching the ID
-                                if compdata.ID in dfile:
-                                    dcontent = self._deb.data.extractdata(dfile)
-                                    if dcontent:
-                                        self.read_desktop(dcontent, compdata)
-
-                                    self._lodesk.remove(dfile)
-
-                            if not compdata.ignore:
-                                component_list.append(compdata)
+                        component_dict[compdata.ID] = compdata
                     else:
-                        # ignore if ID is not present for an xml, it is not valid!
+                        # if there is no ID at all, we dump this component, since we cannot do anything with it at all
                         compdata.ignore = True
+            else:
+                # We have a .desktop file
+                dcontent = self._deb.data.extractdata(meta_file)
+                if not dcontent:
+                    continue
+                cpt_id = os.path.basename(meta_file)
+                # in case we have a component with that ID already, extend it using the .desktop file data
+                compdata = component_dict.get(cpt_id)
+                if not compdata:
+                    compdata = ComponentData(suitename, self._component, self._binid,
+                                             self._filename, filelist, self._pkgname)
+                    compdata.ID = cpt_id
+                self._read_desktop(dcontent, compdata)
+                if not compdata.ignore:
+                    component_dict[cpt_id] = compdata
 
-        # Reading the desktop files other than the file which matches
-        # the id in the xml file
-        if self._lodesk:
-            for dfile in self._lodesk:
-                dcontent = self._deb.data.extractdata(dfile)
-                if dcontent:
-                    compdata = ComponentData(suitename, component, binid,
-                                             self._filename, filelist, pkg)
-                    self.read_desktop(dcontent, compdata)
-                    if not compdata.ignore:
-                        compdata.ID = self.find_id(dfile)
-                        component_list.append(compdata)
-
-        return component_list
+        return component_dict.values()
 
 
 class ContentGenerator:
@@ -931,30 +929,40 @@ class MetadataPool:
         Sets the archname of the metadata pool.
         '''
         self._values = values
-        self._list = []
+        self._mcpts = dict()
 
-    def append_compdata(self, compdatalist):
+    def append_cptdata(self, arch, compdatalist):
         '''
         makes a list of all the componentdata objects in a arch pool
         '''
-        self._list = self._list + compdatalist
+        cpts = self._mcpts.get(arch)
+        if not cpts:
+            self._mcpts[arch] = dict()
+            cpts = self._mcpts[arch]
+        for c in compdatalist:
+            if cpts.get(c.ID):
+                print("WARNING: Duplicate ID detected: %s" % (c.ID))
+                continue
+            cpts[c.ID] = c
 
-    def saver(self):
+    def export(self):
         """
         Saves metadata in db(in YAML) and stores icons
         and screenshots
         """
-        dep11 = DEP11Metadata()
-        for cdata in self._list:
-            cg = ContentGenerator(cdata)
-            screen_bool = cg.fetch_screenshots(self._values)
-            icon_bool = cg.fetch_icon(self._values)
-            dic = cg._cdata.serialize_to_dic()
-            # if flag is true we ignore while writing
-            flag = (not (screen_bool or icon_bool)) or cg._cdata.ignore
-            cg.dump_meta(dic, dep11, flag)
-
-        dep11.close()
+        for arch, cpts in self._mcpts.items():
+            values = self._values
+            values['architecture'] = arch
+            dep11 = DEP11Metadata()
+            for cdata in cpts.values():
+                cg = ContentGenerator(cdata)
+                screen_bool = cg.fetch_screenshots(values)
+                icon_bool = cg.fetch_icon(values)
+                dic = cg._cdata.serialize_to_dic()
+                # if flag is true we ignore while writing
+                flag = (not (screen_bool or icon_bool)) or cg._cdata.ignore
+                cg.dump_meta(dic, dep11, flag)
+            dep11.close()
 
 ##############################################################################
 
@@ -964,15 +972,14 @@ def make_icon_tar(suitename, component):
      Icons-%(component).tar.gz of each Component.
     '''
 
-    location = "%s%s/%s/*/icons/" % \
-               (Config()["Dir::MetaInfo"], suitename, component)
-    tar_location = "%sdists/%s/%s/" % \
-                   (Config()["Dir::Root"], suitename, component)
+    location = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons")
+    tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
 
-    tar = tarfile.open("%sIcons-%s.tar.gz" % (tar_location, component), "w:gz")
+    icon_tar_fname = os.path.join(tar_location, "icons-%s.tar.gz" % (component))
+    tar = tarfile.open(icon_tar_fname, "w:gz")
 
     for filename in glob.glob(location+"*.*"):
-        icon_name = filename.split('/').pop()
+        icon_name = os.path.basename (filename)
         tar.add(filename,arcname=icon_name)
 
     tar.close()
@@ -993,43 +1000,25 @@ def process_suite(session, suite):
             'component': component,
         }
 
-        data_pools = dict()
-
+        dpool = MetadataPool(values)
         for pkgname, pkg in pkglist.items():
             for arch, data in pkg.items():
-                if not data_pools.get(arch):
-                    values['architecture'] = arch
-                    pool = MetadataPool(values)
-                else:
-                    pool = data_pools[arch]
                 package_fname = os.path.join (path, data['filename'])
                 if not os.path.exists(package_fname):
                     print('Package not found: %s' % (package_fname))
                     continue
                 print("Processing package: %s (%s)" % (pkgname, arch))
 
-                # FIXME: Temporary, this should go...
-                xmlfiles = list()
-                dfiles = list()
-                for f in data['files']:
-                    if f.endswith(".desktop"):
-                        dfiles.append(f)
-                    else:
-                        xmlfiles.append(f)
-
                 # loop over all_dic to find metadata of all the debian packages
-                mde = MetaDataExtractor(package_fname, xmlfiles, dfiles)
-                filelist = mde.filelist()
-                cd_list = mde.read_metadata(suite.suite_name, component,
-                                            data['binid'],
-                                            filelist, pkgname)
+                mde = MetaDataExtractor(suite, component, pkgname, data['files'], data['binid'], package_fname)
+                cpt_list = mde.get_cptdata()
+                dpool.append_cptdata(arch, cpt_list)
 
-        for pool in data_pools.values():
-            # Save metadata of all binaries of the Components-arch
-            # This would require a lock
-            pool.saver()
-
+        # Save metadata of all binaries of the Components-arch
+        # This would require a lock
+        dpool.export()
         make_icon_tar(suite.suite_name, component)
+
         print("Processed packages in suite %s/%s" % (suite.suite_name, component))
 
 
@@ -1041,7 +1030,9 @@ def write_component_files(suite):
     print("Writing DEP-11 files for %s" % (suite.suite_name))
     for component in [ c.component_name for c in suite.components ]:
         # writing per <arch>
-        for arch in [ a.architecture_name for a in suite.architectures ]:
+        for arch in [ a.arch_string for a in suite.architectures ]:
+            if arch == "source":
+                continue
             head_string = yaml.dump(dep11_header, Dumper=DEP11YAMLDumper,
                                     default_flow_style=False, explicit_start=True,
                                     explicit_end=False, width=100, indent=2)
