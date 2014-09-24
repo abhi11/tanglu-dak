@@ -967,7 +967,6 @@ class MetadataPool:
                 # if flag is true we ignore while writing
                 flag = (not (screen_bool or icon_bool)) or cg._cdata.ignore
                 cg.dump_meta(dic, dep11, flag)
-            dep11.close()
         # commit all changes
         self._session.commit()
 
