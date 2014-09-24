@@ -980,13 +980,13 @@ def make_icon_tar(suitename, component):
      Icons-%(component).tar.gz of each Component.
     '''
 
-    location = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons")
+    icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", "*.*")
     tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
 
     icon_tar_fname = os.path.join(tar_location, "icons-%s.tar.gz" % (component))
     tar = tarfile.open(icon_tar_fname, "w:gz")
 
-    for filename in glob.glob(location+"*.*"):
+    for filename in glob.glob(icon_location_glob):
         icon_name = os.path.basename (filename)
         tar.add(filename,arcname=icon_name)
 
