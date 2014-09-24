@@ -69,8 +69,8 @@ dep11_header = {
 # TODO: Move to dbconn.py
 class DEP11Metadata():
 
-    def __init__(self):
-        self._session = DBConn().session()
+    def __init__(self, session):
+        self._session = session
 
     def insertdata(self, binid, yamldoc,flag):
         d = {"bin_id": binid, "yaml_data": yamldoc, "ignore":flag}
@@ -85,9 +85,6 @@ class DEP11Metadata():
         and s.suite_name= :suitename)"""
         self._session.execute(sql, {"suitename": suitename})
         self._session.commit()
-
-    def close(self):
-        self._session.close()
 
 def usage():
     print("""Usage: dak generate_metadata -s <suitename> [OPTION]
@@ -781,7 +778,6 @@ class ContentGenerator:
                              explicit_end=False, width=100, indent=2,
                              allow_unicode=True)
         dep11.insertdata(self._cdata._binid, metadata, flag)
-        dep11._session.commit()
 
     def make_url(self, path):
         '''
@@ -932,12 +928,13 @@ class MetadataPool:
     Keeps a pool of component metadata per arch per component
     '''
 
-    def __init__(self, values):
+    def __init__(self, session, values):
         '''
         Sets the archname of the metadata pool.
         '''
         self._values = values
         self._mcpts = dict()
+        self._session = session
 
     def append_cptdata(self, arch, compdatalist):
         '''
@@ -961,7 +958,7 @@ class MetadataPool:
         for arch, cpts in self._mcpts.items():
             values = self._values
             values['architecture'] = arch
-            dep11 = DEP11Metadata()
+            dep11 = DEP11Metadata(self._session)
             for cdata in cpts.values():
                 cg = ContentGenerator(cdata)
                 screen_bool = cg.fetch_screenshots(values)
@@ -971,6 +968,8 @@ class MetadataPool:
                 flag = (not (screen_bool or icon_bool)) or cg._cdata.ignore
                 cg.dump_meta(dic, dep11, flag)
             dep11.close()
+        # commit all changes
+        self._session.commit()
 
 ##############################################################################
 
@@ -1008,7 +1007,7 @@ def process_suite(session, suite):
             'component': component,
         }
 
-        dpool = MetadataPool(values)
+        dpool = MetadataPool(session, values)
         for pkgname, pkg in pkglist.items():
             for arch, data in pkg.items():
                 package_fname = os.path.join (path, data['filename'])
