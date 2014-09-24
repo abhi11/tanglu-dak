@@ -61,28 +61,8 @@ class MetaInfoFinder:
 
         # SQL logic:
         # select all the binaries that have a .desktop and xml files
-        sql = """
-        with
-        req_data as
-        ( select distinct on(b.package) f.filename, c.name, b.id,
-        a.arch_string, b.package
-        from
-        binaries b, bin_associations ba, suite s, files f, override o,
-        component c, architecture a
-        where b.type = 'deb' and b.file = f.id and b.package = o.package
-        and o.component = c.id and c.name = :component and b.id = ba.bin
-        and ba.suite = s.id and s.suite_name = :suitename and
-        b.architecture = a.id order by b.package, b.version desc)
-
-        select bc.file,rd.filename,rd.name,rd.id,rd.arch_string,rd.package
-        from bin_contents bc,req_data rd
-        where (bc.file like 'usr/share/appdata/%.xml' or
-        bc.file like 'usr/share/applications/%.desktop')
-        and bc.binary_id = rd.id
-        """
-
-        # do not repeat
-        '''
+        # do not repeat processing of deb files that are already processed
+    
         sql = """
         with
         req_data as
@@ -103,7 +83,6 @@ class MetaInfoFinder:
         and bc.binary_id = rd.id and rd.id not in
         (select binary_id from bin_dep11)
         """
-        '''
 
         # FIXME: We get only one hit for one arch for some reason...
         result = self._session.query("file", "filename", "name", "id",
