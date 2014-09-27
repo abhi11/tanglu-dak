@@ -1065,7 +1065,7 @@ def expire_dep11_data_cache(session, suitename):
     '''
     # dic that has pkg name as key and bin_ids as values in a list,
     # these are not to be deleted
-    do_not_clear_list = {}
+    keep = list()
     dir_list = []
     print("Clearing stale cached data...")
     # select all the binids with a package-name
@@ -1077,27 +1077,13 @@ def expire_dep11_data_cache(session, suitename):
     q = session.execute(sql)
     result = q.fetchall()
     for r in result:
-        if do_not_clear_list.get(r[1]):
-            do_not_clear_list[r[1]].append(str(r[0]))
-        else:
-            do_not_clear_list[r[1]] = [str(r[0])]
+        keep.append("%s-%s" % (r[1], r[0]))
 
-    for pkg in do_not_clear_list.iterkeys():
-        for i in glob.glob("%s%s/*/%s*/" % (Config()["Dir::MetaInfo"],
-                                            suitename, pkg)):
-            true = [True if "-"+binid not in i else False
-                    for binid in do_not_clear_list[pkg]]
-
-            # delete this directiory as the pkg-binid does not exist
-            if all(true):
-                dir_list.append(i)
-
-    # remove the directories that are no longer required
-    # (removes screenshots and icons)
-    for d in dir_list:
-        if os.path.exists(d):
-            print("Removing DEP-11 cache directory: %s" % (d))
-            rmtree(d)
+    glob_tmpl = "%s/*/*" % (os.path.join(Config()["Dir::MetaInfo"], suitename))
+    for fname in glob.glob(glob_tmpl):
+        if not os.path.basename(fname) in keep:
+            print("Removing DEP-11 cache directory: %s" % (fname))
+            rmtree(fname)
 
     print("Cache pruned.")
 
