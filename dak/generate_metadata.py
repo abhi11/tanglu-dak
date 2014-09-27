@@ -136,23 +136,21 @@ class ProvidedItemType(object):
 
 class ComponentData:
     '''
-    Used to store the properties of component data. Used by MetaDataExtractor
+    Used to store the properties of component data. Used by MetadataExtractor
     '''
 
-    def __init__(self, suitename, component, binid, filename, filelist, pkg):
+    def __init__(self, suitename, component, binid, pkg):
         '''
         Used to set the properties to None.
         '''
         self._suitename = suitename
         self._component = component
-        self._filelist = filelist
         self._pkg = pkg
         self._binid = binid
-        self._file = filename
 
         # properties
         self._compulsory_for_desktop = None
-        self._ignore = False
+        self._ignore_reason = None
         self._ID = None
         self._type = None
         self._name = dict()
@@ -169,12 +167,12 @@ class ComponentData:
         self._project_group = None
 
     @property
-    def ignore(self):
-        return self._ignore
+    def ignore_reason(self):
+        return self._ignore_reason
 
-    @ignore.setter
-    def ignore(self, val):
-        self._ignore = val
+    @ignore_reason.setter
+    def ignore_reason(self, val):
+        self._ignore_reason = val
 
     @property
     def ID(self):
@@ -325,22 +323,19 @@ class ComponentData:
         '''
         dic = {}
         dic['Packages'] = [self._pkg]
-
-        if self.icon:
-            # ignore if icon is not valid
-            ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
-            if self.icon.endswith(ext_allowed):
-                dic['Icon'] = {'cached': self.icon}
-            else:
-                self.ignore = True
-                return None
-        if self.kind == 'desktop-app' and not self.icon:
-            self.ignore = True
-            return None
         if self.ID:
             dic['ID'] = self.ID
         if self.kind:
             dic['Type'] = self.kind
+
+        # check if we need to print ignore information, instead
+        # of exporting the software component
+        if self.ignore_reason:
+            dic['ID'] = self.ID
+            dic['Ignored'] = True
+            dic['Reason'] = self.ignore_reason
+            return dic
+
         if self.name:
             dic['Name'] = self.cleanup(self.name)
         if self.summary:
@@ -355,6 +350,8 @@ class ComponentData:
             dic['Screenshots'] = self.screenshots
         if self.archs:
             dic['Architectures'] = self.archs
+        if self.icon:
+            dic['Icon'] = {'cached': self.icon}
         if self.url:
             dic['Url'] = self.url
         if self.provides:
@@ -368,7 +365,7 @@ class ComponentData:
         return dic
 
 
-class MetaDataExtractor:
+class MetadataExtractor:
     '''
     Takes a deb file and extracts component metadata from it.
     '''
@@ -390,6 +387,10 @@ class MetaDataExtractor:
         self._mfiles = metainfo_files
         self._binid = binid
 
+        self._export_path = "%s/%s/%s/%s-%s" % (Config()["Dir::MetaInfo"],
+                                self._suite.suite_name, self._component,
+                                self._pkgname, str(self._binid))
+
     def _deb_filelist(self):
         '''
         Returns a list of all files in a deb package
@@ -404,6 +405,132 @@ class MetaDataExtractor:
             return None
 
         return files
+
+    def _scale_screenshots(self, imgsrc, path):
+        '''
+        scale images in three sets of two-dimensions
+        (752x423 624x351 and 112x63)
+        '''
+        thumbnails = []
+        name = imgsrc.split('/').pop()
+        sizes = ['752x423', '624x351', '112x63']
+        for size in sizes:
+            wd, ht = size.split('x')
+            img = Image.open(imgsrc)
+            newimg = img.resize((int(wd), int(ht)), Image.ANTIALIAS)
+            newpath = path+size+"/"
+            if not os.path.exists(newpath):
+                os.makedirs(os.path.dirname(newpath))
+            newimg.save(newpath+name)
+            url = self.make_url(newpath+name)
+            thumbnails.append({'url': url, 'height': int(ht),
+                               'width': int(wd)})
+
+        return thumbnails
+
+    def _fetch_screenshots(self, cpt):
+        '''
+        Fetches screenshots from the given url and
+        stores it in png format.
+        '''
+        if cpt.screenshots:
+            success = []
+            shots = []
+            cnt = 1
+            for shot in cpt.screenshots:
+                origin_url = shot['source-image']['url']
+                try:
+                    image = urllib.urlopen(origin_url).read()
+                    path = "%s/screenshots/" % (self._export_path)
+                    if not os.path.exists(path):
+                        os.makedirs(os.path.dirname(path + "source/"))
+                    f = open('%ssource/screenshot-%s.png' % (path, str(cnt)), 'wb')
+                    f.write(image)
+                    f.close()
+                    img = Image.open('%ssource/screenshot-%s.png' % (path, str(cnt)))
+                    wd, ht = img.size
+                    shot['source-image']['width'] = wd
+                    shot['source-image']['height'] = ht
+                    shot['source-image']['url'] = self.make_url(
+                        '%ssource/screenshot-%s.png' % (path, str(cnt)))
+                    img.close()
+                    success.append(True)
+                    # scale_screenshots will return a list of
+                    # dicts with {height,width,url}
+                    shot['thumbnails'] = self._scale_screenshots(
+                        '%ssource/screenshot-%s.png' % (path, str(cnt)), path)
+                    shots.append(shot)
+                    print("New screenshot cached from %s" % (origin_url))
+                    cnt = cnt + 1
+                except:
+                    success.append(False)
+
+            cpt.screenshots = shots
+            return any(success)
+
+        # don't ignore metadata if screenshots itself is not present
+        return True
+
+    def _store_icon(self, cpt, icon, filepath):
+        '''
+        Extracts the icon from the deb package and stores it.
+        '''
+        path = "%s/icons/" % (self._export_path)
+        icon_name = "%s_%s" % (str(self._binid), os.path.basename(icon))
+        cpt.icon = icon_name
+
+        # filepath is checked because icon can reside in another binary
+        # eg amarok's icon is in amarok-data
+        if os.path.exists(filepath):
+            try:
+                icon_data = DebFile(filepath).data.extractdata(icon)
+            except Exception as e:
+                print("Error while extracting icon '%s': %s" % (filepath, e))
+                return False
+
+            if icon_data:
+                if not os.path.exists(path):
+                    os.makedirs(os.path.dirname(path))
+                f = open("{0}/{1}".format(path, icon_name), "wb")
+                f.write(icon_data)
+                f.close()
+                print("Saved icon %s." % (icon_name))
+                return True
+        return False
+
+    def _fetch_icon(self, cpt, filelist):
+        '''
+        Searches for icon if absolute path to an icon
+        is not given. Component with invalid icons are ignored
+        '''
+        if cpt.icon:
+            icon = cpt.icon
+            cpt.icon = icon.split('/').pop()
+
+            if not icon.endswith(('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')):
+                cpt.ignore_reason = "Icon file '%s' uses an unsupported image file format." % (os.path.basename (icon))
+                return False
+
+            if icon[1:] in filelist:
+                return self._store_icon(cpt, icon[1:], self._filename)
+            else:
+                ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
+                for path in filelist:
+                    if path.endswith(ext_allowed):
+                        if 'pixmaps' in path or 'icons' in path:
+                            return self._store_icon(cpt, path, self._filename)
+
+                ficon = findicon(self._pkgname, icon, self._binid)
+                flist = ficon.queryicon()
+                ficon.close()
+
+                if flist:
+                    filepath = (Config()["Dir::Pool"] +
+                                cpt._component + '/' + flist[1])
+                    return self._store_icon(cpt, flist[0], filepath)
+                return False
+        # keep metadata if Icon self itself is not present
+        return True
 
     def _strip_comment(self, line=None):
         '''
@@ -443,11 +570,12 @@ class MetaDataExtractor:
 
                     # Ignore the file if NoDisplay is true
                     if key == 'NoDisplay' and value == 'True':
-                        compdata.ignore = True
+                        # we ignore this .desktop file, shouldn't be displayed
                         break
 
                     if key == 'Type' and value != 'Application':
-                        compdata.ignore = True
+                        # ignore this file, isn't an application
+                        break
                     else:
                         compdata.kind = 'desktop-app'
 
@@ -719,15 +847,14 @@ class MetaDataExtractor:
                     continue
                 if xml_content:
                     # xml file is broken,read next xml file
-                    compdata = ComponentData(suitename, self._component, self._binid,
-                                             self._filename, filelist, self._pkgname)
+                    compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
                     self._read_xml(xml_content, compdata)
                     # Reads the desktop files associated with the xml file
                     if compdata.ID:
                         component_dict[compdata.ID] = compdata
                     else:
                         # if there is no ID at all, we dump this component, since we cannot do anything with it at all
-                        compdata.ignore = True
+                        compdata.ignore_reason = "Could not determine an id for this component."
             else:
                 # We have a .desktop file
                 dcontent = None
@@ -742,186 +869,20 @@ class MetaDataExtractor:
                 # in case we have a component with that ID already, extend it using the .desktop file data
                 compdata = component_dict.get(cpt_id)
                 if not compdata:
-                    compdata = ComponentData(suitename, self._component, self._binid,
-                                             self._filename, filelist, self._pkgname)
+                    compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
                     compdata.ID = cpt_id
                 self._read_desktop(dcontent, compdata)
-                if not compdata.ignore:
+                if not compdata.ignore_reason:
                     component_dict[cpt_id] = compdata
 
-        return component_dict.values()
-
-
-class ContentGenerator:
-    '''
-    Takes a ComponentData object.And genrates the metadata into YAML format
-    Dumps it into the db screenshot and icons.
-    '''
-    # static will be same thorughout
-    url = Config()["Url::DEP11"]
-
-    def __init__(self, compdata):
-        '''
-        List contains componendata of a archtype of a component
-        '''
-        self._cdata = compdata
-
-
-    def dump_meta(self, dic, dep11, flag):
-        '''
-        Genrerates Appstream metadata in yaml format and also dumps
-        it into the db( bin_dep11 table)
-        '''
-        # get the metadata in YAML format
-        metadata = yaml.dump(dic, Dumper=DEP11YAMLDumper,
-                             default_flow_style=False, explicit_start=True,
-                             explicit_end=False, width=100, indent=2,
-                             allow_unicode=True)
-        dep11.insertdata(self._cdata._binid, metadata, flag)
-
-    def make_url(self, path):
-        '''
-        Take an absolute path and convert into valid url
-        '''
-        check = path.find('/export/')
-        # this would change later
-        url = "%s%s" % (ContentGenerator.url,path[check:])
-        return url
-
-    def scale_screenshots(self, imgsrc, path):
-        '''
-        scale images in three sets of two-dimensions
-        (752x423 624x351 and 112x63)
-        '''
-        thumbnails = []
-        name = imgsrc.split('/').pop()
-        sizes = ['752x423', '624x351', '112x63']
-        for size in sizes:
-            wd, ht = size.split('x')
-            img = Image.open(imgsrc)
-            newimg = img.resize((int(wd), int(ht)), Image.ANTIALIAS)
-            newpath = path+size+"/"
-            if not os.path.exists(newpath):
-                os.makedirs(os.path.dirname(newpath))
-            newimg.save(newpath+name)
-            url = self.make_url(newpath+name)
-            thumbnails.append({'url': url, 'height': int(ht),
-                               'width': int(wd)})
-
-        return thumbnails
-
-    def fetch_screenshots(self, values):
-        '''
-        Fetches screenshots from the given url and
-        stores it in png format.
-        '''
-        if self._cdata.screenshots:
-            success = []
-            shots = []
-            cnt = 1
-            for shot in self._cdata.screenshots:
-                origin_url = shot['source-image']['url']
-                try:
-                    image = urllib.urlopen(origin_url).read()
-                    template = (Config()["Dir::MetaInfo"] +
-                                "%(suite)s/%(component)s/")
-                    path = template % values
-                    path = "%s%s-%s/screenshots/" % \
-                           (path, self._cdata._pkg, str(self._cdata._binid))
-                    if not os.path.exists(path):
-                        os.makedirs(os.path.dirname(path + "source/"))
-                    f = open('%ssource/screenshot-%s.png' % (path, str(cnt)), 'wb')
-                    f.write(image)
-                    f.close()
-                    img = Image.open('%ssource/screenshot-%s.png' % (path, str(cnt)))
-                    wd, ht = img.size
-                    shot['source-image']['width'] = wd
-                    shot['source-image']['height'] = ht
-                    shot['source-image']['url'] = self.make_url(
-                        '%ssource/screenshot-%s.png' % (path, str(cnt)))
-                    img.close()
-                    success.append(True)
-                    # scale_screenshots will return a list of
-                    # dicts with {height,width,url}
-                    shot['thumbnails'] = self.scale_screenshots(
-                        '%ssource/screenshot-%s.png' % (path, str(cnt)), path)
-                    shots.append(shot)
-                    print("New screenshot cached from %s" % (origin_url))
-                    cnt = cnt + 1
-                except:
-                    success.append(False)
-
-            self._cdata.screenshots = shots
-            return any(success)
-
-        # don't ignore metadata if screenshots itself is not present
-        return True
-
-    def save_icon(self, icon, filepath, values):
-        '''
-        Extracts the icon from the deb package and stores it.
-        '''
-        template = Config()["Dir::MetaInfo"]+"%(suite)s/%(component)s/"
-        path = template % values
-        path = "%s%s-%s/icons/" % \
-               (path, self._cdata._pkg, str(self._cdata._binid))
-        icon_name = "%s_%s" % (str(self._cdata._binid), os.path.basename(icon))
-        self._cdata.icon = icon_name
-        # filepath is checked because icon can reside in another binary
-        # eg amarok's icon is in amarok-data
-        if os.path.exists(filepath):
-            try:
-                icon_data = DebFile(filepath).data.extractdata(icon)
-            except Exception as e:
-                print("Error while extracting icon '%s': %s" % (filepath, e))
-                return False
-
-            if icon_data:
-                if not os.path.exists(path):
-                    os.makedirs(os.path.dirname(path))
-                f = open("{0}/{1}".format(path, icon_name), "wb")
-                f.write(icon_data)
-                f.close()
-                print("Saved icon %s." % (icon_name))
-                return True
-        return False
-
-    def fetch_icon(self, values):
-        '''
-        Searches for icon if aboslute path to an icon
-        is not given. Component with invalid icons are ignored
-        '''
-        if self._cdata.icon:
-            icon = self._cdata.icon
-            self._cdata.icon = icon.split('/').pop()
-
-            if icon.endswith('.xpm') or icon.endswith('.tiff'):
-                self._cdata.ignore = True
-                return False
-
-            if icon[1:] in self._cdata._filelist:
-                return self.save_icon(icon[1:], self._cdata._file, values)
-
+        for cpt in component_dict.values():
+            self._fetch_icon(cpt, filelist)
+            if cpt.kind == 'desktop-app' and not cpt.icon:
+                cpt.ignore_reason = "GUI application, but no valid icon found."
             else:
-                ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
-                for path in self._cdata._filelist:
-                    if path.endswith(ext_allowed):
-                        if 'pixmaps' in path or 'icons' in path:
-                            return self.save_icon(
-                                path, self._cdata._file, values)
+                self._fetch_screenshots(cpt)
 
-                ficon = findicon(self._cdata._pkg, icon, self._cdata._binid)
-                flist = ficon.queryicon()
-                ficon.close()
-
-                if flist:
-                    filepath = (Config()["Dir::Pool"] +
-                                self._cdata._component + '/' + flist[1])
-                    return self.save_icon(flist[0], filepath, values)
-                return False
-        # keep metadata if Icon self itself is not present
-        return True
-
+        return component_dict.values()
 
 class MetadataPool:
     '''
@@ -952,21 +913,20 @@ class MetadataPool:
 
     def export(self):
         """
-        Saves metadata in db(in YAML) and stores icons
-        and screenshots
+        Saves metadata in db (serialized to YAML)
         """
         for arch, cpts in self._mcpts.items():
             values = self._values
             values['architecture'] = arch
             dep11 = DEP11Metadata(self._session)
             for cdata in cpts.values():
-                cg = ContentGenerator(cdata)
-                screen_bool = cg.fetch_screenshots(values)
-                icon_bool = cg.fetch_icon(values)
-                dic = cg._cdata.serialize_to_dic()
-                # if flag is true we ignore while writing
-                flag = (not (screen_bool or icon_bool)) or cg._cdata.ignore
-                cg.dump_meta(dic, dep11, flag)
+                # get the metadata in YAML format
+                metadata = yaml.dump(cdata.serialize_to_dic(), Dumper=DEP11YAMLDumper,
+                            default_flow_style=False, explicit_start=True,
+                            explicit_end=False, width=100, indent=2,
+                            allow_unicode=True)
+                # store metadata in database
+                dep11.insertdata(cdata._binid, metadata, cdata.ignore_reason == None)
         # commit all changes
         self._session.commit()
 
@@ -1016,7 +976,7 @@ def process_suite(session, suite):
                 print("Processing package: %s (%s)" % (pkgname, arch))
 
                 # loop over all_dic to find metadata of all the debian packages
-                mde = MetaDataExtractor(suite, component, pkgname, data['files'], data['binid'], package_fname)
+                mde = MetadataExtractor(suite, component, pkgname, data['files'], data['binid'], package_fname)
                 cpt_list = mde.get_cptdata()
                 dpool.append_cptdata(arch, cpt_list)
 
