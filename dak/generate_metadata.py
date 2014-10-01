@@ -55,6 +55,7 @@ from daklib.daksubprocess import call, check_call
 from daklib.filewriter import DEP11DataFileWriter
 from daklib.config import Config
 from daklib.dbconn import *
+from daklib.dakmultiprocessing import DakProcessPool, PROC_STATUS_SUCCESS, PROC_STATUS_SIGNALRAISED
 
 ###########################################################################
 DEP11_VERSION = "0.6"
@@ -370,7 +371,7 @@ class MetadataExtractor:
     Takes a deb file and extracts component metadata from it.
     '''
 
-    def __init__(self, suite, component, pkgname, metainfo_files, binid, pkg_fname):
+    def __init__(self, suite_name, component, pkgname, metainfo_files, binid, pkg_fname):
         '''
         Initialize the object with List of files.
         '''
@@ -381,14 +382,14 @@ class MetadataExtractor:
         except Exception as e:
             print ("Error reading deb file '%s': %s" % (self._filename , e))
 
-        self._suite = suite
+        self._suite_name = suite_name
         self._component = component
         self._pkgname = pkgname
         self._mfiles = metainfo_files
         self._binid = binid
 
         self._export_path = "%s/%s/%s/%s-%s" % (Config()["Dir::MetaInfo"],
-                                self._suite.suite_name, self._component,
+                                self._suite_name, self._component,
                                 self._pkgname, str(self._binid))
 
     def _deb_filelist(self):
@@ -434,8 +435,8 @@ class MetadataExtractor:
         stores it in png format.
         '''
         if cpt.screenshots:
-            success = []
-            shots = []
+            success = True
+            shots = list()
             cnt = 1
             for shot in cpt.screenshots:
                 origin_url = shot['source-image']['url']
@@ -447,6 +448,12 @@ class MetadataExtractor:
                     f = open('%ssource/screenshot-%s.png' % (path, str(cnt)), 'wb')
                     f.write(image)
                     f.close()
+                except Exception as e:
+                    print("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.ID, str(e)))
+                    success = False
+                    continue
+
+                try:
                     img = Image.open('%ssource/screenshot-%s.png' % (path, str(cnt)))
                     wd, ht = img.size
                     shot['source-image']['width'] = wd
@@ -454,19 +461,21 @@ class MetadataExtractor:
                     shot['source-image']['url'] = self.make_url(
                         '%ssource/screenshot-%s.png' % (path, str(cnt)))
                     img.close()
-                    success.append(True)
-                    # scale_screenshots will return a list of
-                    # dicts with {height,width,url}
-                    shot['thumbnails'] = self._scale_screenshots(
-                        '%ssource/screenshot-%s.png' % (path, str(cnt)), path)
-                    shots.append(shot)
-                    print("New screenshot cached from %s" % (origin_url))
-                    cnt = cnt + 1
-                except:
-                    success.append(False)
+                except Exception as e:
+                    print("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.ID, str(e)))
+                    success = False
+                    continue
+
+                # scale_screenshots will return a list of
+                # dicts with {height,width,url}
+                shot['thumbnails'] = self._scale_screenshots(
+                    '%ssource/screenshot-%s.png' % (path, str(cnt)), path)
+                shots.append(shot)
+                print("New screenshot cached from %s" % (origin_url))
+                cnt = cnt + 1
 
             cpt.screenshots = shots
-            return any(success)
+            return success
 
         # don't ignore metadata if screenshots itself is not present
         return True
@@ -499,7 +508,7 @@ class MetadataExtractor:
                 f = open(icon_store_location, "wb")
                 f.write(icon_data)
                 f.close()
-                print("Saved icon %s." % (icon_name))
+                #! print("Saved icon %s." % (icon_name))
                 return True
         return False
 
@@ -530,8 +539,9 @@ class MetadataExtractor:
                         if 'pixmaps' in path or 'icons' in path:
                             return self._store_icon(cpt, path, self._filename)
 
-                ficon = findicon(self._pkgname, icon, self._binid)
-                flist = ficon.queryicon()
+                # the IconFinder runs it's own, new session, since we run multiprocess here
+                ficon = IconFinder(self._pkgname, icon, self._binid)
+                flist = ficon.query_icon()
                 ficon.close()
 
                 if flist:
@@ -842,25 +852,29 @@ class MetadataExtractor:
         '''
         if not self._deb:
             return list()
-        suitename = self._suite.suite_name
+        suitename = self._suite_name
         filelist = self._deb_filelist()
+        component_dict = dict()
+
         if not filelist:
-            print("Could not determine file list for '%s'" % (self._filename))
-            return list()
+            compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
+            compdata.ignore_reason = "Could not determine file list for '%s'" % (os.path.basename(self._filename))
+            return [compdata]
 
         component_dict = dict()
         # Reading xml files and associated .desktop
         for meta_file in self._mfiles:
             if meta_file.endswith(".xml"):
                 xml_content = None
+                compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
+
                 try:
                     xml_content = str(self._deb.data.extractdata(meta_file))
                 except Exception as e:
-                    print("Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e)))
-                    continue
+                    # inability to read an AppStream XML file is a valid ignore reason, skip this package.
+                    compdata.ignore_reason = "Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e))
+                    return [compdata]
                 if xml_content:
-                    # xml file is broken,read next xml file
-                    compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
                     self._read_xml(xml_content, compdata)
                     # Reads the desktop files associated with the xml file
                     if compdata.ID:
@@ -903,13 +917,12 @@ class MetadataPool:
     Keeps a pool of component metadata per arch per component
     '''
 
-    def __init__(self, session, values):
+    def __init__(self, values):
         '''
         Sets the archname of the metadata pool.
         '''
         self._values = values
         self._mcpts = dict()
-        self._session = session
 
     def append_cptdata(self, arch, compdatalist):
         '''
@@ -925,14 +938,14 @@ class MetadataPool:
                 continue
             cpts[c.ID] = c
 
-    def export(self):
+    def export(self, session):
         """
         Saves metadata in db (serialized to YAML)
         """
         for arch, cpts in self._mcpts.items():
             values = self._values
             values['architecture'] = arch
-            dep11 = DEP11Metadata(self._session)
+            dep11 = DEP11Metadata(session)
             for cdata in cpts.values():
                 # get the metadata in YAML format
                 metadata = yaml.dump(cdata.serialize_to_dic(), Dumper=DEP11YAMLDumper,
@@ -942,14 +955,14 @@ class MetadataPool:
                 # store metadata in database
                 dep11.insertdata(cdata._binid, metadata, cdata.ignore_reason != None)
         # commit all changes
-        self._session.commit()
+        session.commit()
 
 ##############################################################################
 
 
 def make_icon_tar(suitename, component):
     '''
-     Icons-%(component).tar.gz of each Component.
+     icons-%(component)_%(size).tar.gz of each Component.
     '''
 
     icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", "*.*")
@@ -964,11 +977,26 @@ def make_icon_tar(suitename, component):
 
     tar.close()
 
-def process_suite(session, suite):
+def extract_metadata(sn, c, pkgname, metainfo_files, binid, package_fname, arch):
+    mde = MetadataExtractor(sn, c, pkgname, metainfo_files, binid, package_fname)
+    cpt_list = mde.get_cptdata()
+
+    data = dict()
+    data['arch'] = arch
+    data['cpts'] = cpt_list
+    data['message'] = "Processed package: %s (%s/%s)" % (pkgname, sn, arch)
+    return (PROC_STATUS_SUCCESS, data)
+
+def process_suite(session, suite, logger, force=False):
     '''
     Run by main to loop for different component and architecture.
     '''
     path = Config()["Dir::Pool"]
+
+    if suite.untouchable and not force:
+        import daklib.utils
+        daklib.utils.fubar("Refusing to touch %s (untouchable and not forced)" % suite.suite_name)
+        return
 
     for component in [ c.component_name for c in suite.components ]:
         mif = MetaInfoFinder(session)
@@ -980,27 +1008,39 @@ def process_suite(session, suite):
             'component': component,
         }
 
-        dpool = MetadataPool(session, values)
+        pool = DakProcessPool()
+        dpool = MetadataPool(values)
+
+        def parse_results(message):
+            # Split out into (code, msg)
+            code, msg = message
+            if code == PROC_STATUS_SUCCESS:
+                # we abuse the message return value here...
+                logger.log([msg['message']])
+                dpool.append_cptdata(msg['arch'], msg['cpts'])
+            elif code == PROC_STATUS_SIGNALRAISED:
+                logger.log(['E: Subprocess recieved signal ', msg])
+            else:
+                logger.log(['E: ', msg])
+
+
         for pkgname, pkg in pkglist.items():
             for arch, data in pkg.items():
                 package_fname = os.path.join (path, data['filename'])
                 if not os.path.exists(package_fname):
                     print('Package not found: %s' % (package_fname))
                     continue
-                print("Processing package: %s (%s)" % (pkgname, arch))
-
-                # loop over all_dic to find metadata of all the debian packages
-                mde = MetadataExtractor(suite, component, pkgname, data['files'], data['binid'], package_fname)
-                cpt_list = mde.get_cptdata()
-                dpool.append_cptdata(arch, cpt_list)
+                pool.apply_async(extract_metadata,
+                            (suite.suite_name, component, pkgname, data['files'], data['binid'], package_fname, arch), callback=parse_results)
+        pool.close()
+        pool.join()
 
         # Save metadata of all binaries of the Components-arch
         # This would require a lock
-        dpool.export()
+        dpool.export(session)
         make_icon_tar(suite.suite_name, component)
 
-        print("Processed packages in suite %s/%s" % (suite.suite_name, component))
-
+        logger.log(["Completed metadata extraction for suite %s/%s" % (suite.suite_name, component)])
 
 def write_component_files(suite):
     '''
@@ -1013,16 +1053,19 @@ def write_component_files(suite):
         for arch in [ a.arch_string for a in suite.architectures ]:
             if arch == "source":
                 continue
-            head_string = yaml.dump(dep11_header, Dumper=DEP11YAMLDumper,
+
+            head_dict = dep11_header
+            head_dict['Origin'] = "%s-%s" % (suite.suite_name, component)
+            head_string = yaml.dump(head_dict, Dumper=DEP11YAMLDumper,
                                     default_flow_style=False, explicit_start=True,
-                                    explicit_end=False, width=100, indent=2)
+                                    explicit_end=False, width=200, indent=2)
             values = {
                 'archive' : suite.archive.path,
                 'suite' : suite.suite_name,
                 'component' : component,
                 'architecture' : arch
             }
-            print("DEBUG: %s"  % (values))
+
             writer = DEP11DataFileWriter(**values)
             ofile = writer.open()
             ofile.write(head_string)
@@ -1084,6 +1127,8 @@ def main():
         print("You need to specify a suite!")
         return
 
+    logger = daklog.Logger('generate-metadata')
+
     from daklib.dbconn import Component, DBConn, get_suite, Suite
     session = DBConn().session()
     suite = get_suite(suitename.lower(), session)
@@ -1091,12 +1136,12 @@ def main():
     if Options["ExpireCache"]:
         expire_dep11_data_cache(session, suitename)
 
-    global dep11_header
-    dep11_header["Origin"] = suite.suite_name
-
-    process_suite(session, suite)
-    # write_bin_dep11
+    process_suite(session, suite, logger)
+    # export database content as Components-<arch>.xz YAML documents
     write_component_files(suite)
+
+    # we're done
+    logger.close()
 
 if __name__ == "__main__":
     main()

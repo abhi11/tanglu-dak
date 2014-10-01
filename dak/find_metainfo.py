@@ -62,7 +62,7 @@ class MetaInfoFinder:
         # SQL logic:
         # select all the binaries that have a .desktop and xml files
         # do not repeat processing of deb files that are already processed
-    
+
         sql = """
         with
         req_data as
@@ -115,7 +115,7 @@ class MetaInfoFinder:
 ###########################################################################
 
 
-class findicon():
+class IconFinder():
     '''
     To be used when icon is not found through regular method.This class
     searches icons of similar packages. Ignores the package with binid.
@@ -130,7 +130,7 @@ class findicon():
         self._session = DBConn().session()
         self._icon = icon
 
-    def queryicon(self):
+    def query_icon(self):
         '''
         function to query icon files from similar packages.
         Returns path of the icon
