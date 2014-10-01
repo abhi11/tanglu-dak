@@ -473,11 +473,16 @@ class MetadataExtractor:
 
     def _store_icon(self, cpt, icon, filepath):
         '''
-        Extracts the icon from the deb package and stores it.
+        Extracts the icon from the deb package and stores it in the cache.
         '''
         path = "%s/icons/" % (self._export_path)
-        icon_name = "%s_%s" % (str(self._binid), os.path.basename(icon))
+        icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
         cpt.icon = icon_name
+
+        icon_store_location = "{0}/{1}".format(path, icon_name)
+        if os.path.exists(icon_store_location):
+            # we already extracted that icon, skip this step
+            return True
 
         # filepath is checked because icon can reside in another binary
         # eg amarok's icon is in amarok-data
@@ -491,7 +496,7 @@ class MetadataExtractor:
             if icon_data:
                 if not os.path.exists(path):
                     os.makedirs(os.path.dirname(path))
-                f = open("{0}/{1}".format(path, icon_name), "wb")
+                f = open(icon_store_location, "wb")
                 f.write(icon_data)
                 f.close()
                 print("Saved icon %s." % (icon_name))
@@ -505,10 +510,15 @@ class MetadataExtractor:
         '''
         if cpt.icon:
             icon = cpt.icon
-            cpt.icon = icon.split('/').pop()
+            cpt.icon = os.path.basename (icon)
+
+            # check if there is some kind of file-extension.
+            # if there is none, the referenced icon is likely a stock icon, and we assume .png
+            if not "." in cpt.icon:
+                icon = icon + ".png"
 
             if not icon.endswith(('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')):
-                cpt.ignore_reason = "Icon file '%s' uses an unsupported image file format." % (os.path.basename (icon))
+                cpt.ignore_reason = "Icon file '%s' uses an unsupported image file format." % (cpt.icon)
                 return False
 
             if icon[1:] in filelist:
@@ -528,7 +538,10 @@ class MetadataExtractor:
                     filepath = (Config()["Dir::Pool"] +
                                 cpt._component + '/' + flist[1])
                     return self._store_icon(cpt, flist[0], filepath)
+
+                cpt.ignore_reason = "Icon '%s' was not found in the archive." % (cpt.icon)
                 return False
+
         # keep metadata if Icon self itself is not present
         return True
 
@@ -878,7 +891,8 @@ class MetadataExtractor:
         for cpt in component_dict.values():
             self._fetch_icon(cpt, filelist)
             if cpt.kind == 'desktop-app' and not cpt.icon:
-                cpt.ignore_reason = "GUI application, but no valid icon found."
+                if not cpt.ignore_reason:
+                    cpt.ignore_reason = "GUI application, but no valid icon found."
             else:
                 self._fetch_screenshots(cpt)
 
@@ -926,7 +940,7 @@ class MetadataPool:
                             explicit_end=False, width=100, indent=2,
                             allow_unicode=True)
                 # store metadata in database
-                dep11.insertdata(cdata._binid, metadata, cdata.ignore_reason == None)
+                dep11.insertdata(cdata._binid, metadata, cdata.ignore_reason != None)
         # commit all changes
         self._session.commit()
 
@@ -941,7 +955,7 @@ def make_icon_tar(suitename, component):
     icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", "*.*")
     tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
 
-    icon_tar_fname = os.path.join(tar_location, "icons-%s.tar.gz" % (component))
+    icon_tar_fname = os.path.join(tar_location, "icons-%s_64px.tar.gz" % (component))
     tar = tarfile.open(icon_tar_fname, "w:gz")
 
     for filename in glob.glob(icon_location_glob):
