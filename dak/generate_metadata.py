@@ -812,17 +812,24 @@ class MetadataExtractor:
         Sets ComponentData properties
         '''
         root = et.fromstring(xml_content)
-        for key, val in root.attrib.iteritems():
-            if key == 'type':
-                if root.attrib['type'] == 'desktop':
-                    compdata.kind = 'desktop-app'
-                else:
-                    # for other components like addon,codec, inputmethod etc
-                    compdata.kind = root.attrib['type']
+        key = root.attrib.get('type')
+        if key:
+            if key == 'desktop':
+                compdata.kind = 'desktop-app'
+            else:
+                # for other components like addon,codec, inputmethod etc
+                compdata.kind = root.attrib['type']
 
         for subs in root:
             if subs.tag == 'id':
-                compdata.ID = subs.text
+                compdata.cid = subs.text
+                # legacy support
+                key = subs.attrib.get('type')
+                if key and not compdata.kind:
+                    if key == 'desktop':
+                        compdata.kind = 'desktop-app'
+                    else:
+                        compdata.kind = root.attrib['type']
 
             if subs.tag == "description":
                 desc = self._parse_description_tag(subs)
