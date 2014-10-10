@@ -144,8 +144,8 @@ class ComponentData:
 
         # properties
         self._compulsory_for_desktop = None
-        self._ignore_reason = None
-        self._ID = None
+        self._ignore_reasons = list()
+        self._id = None
         self._type = None
         self._name = dict()
         self._categories = None
@@ -160,21 +160,21 @@ class ComponentData:
         self._project_license = None
         self._project_group = None
 
+    def add_ignore_reason(self, msg):
+        self._ignore_reasons.append(msg)
+
+    def has_ignore_reason(self):
+        if not self._ignore_reasons:
+            return False
+        return True
+
     @property
-    def ignore_reason(self):
-        return self._ignore_reason
+    def cid(self):
+        return self._id
 
-    @ignore_reason.setter
-    def ignore_reason(self, val):
-        self._ignore_reason = val
-
-    @property
-    def ID(self):
-        return self._ID
-
-    @ID.setter
-    def ID(self, val):
-        self._ID = val
+    @cid.setter
+    def cid(self, val):
+        self._id = val
 
     @property
     def kind(self):
@@ -293,70 +293,112 @@ class ComponentData:
             self.provides[kind] = list()
         self.provides[kind].append(value)
 
-    def cleanup(self, dic):
-        '''
-        Remove cruft locale. And duplicates
-        '''
-        if dic.get('x-test'):
-            dic.pop('x-test')
-        if dic.get('xx'):
-            dic.pop('xx')
 
-        unlocalized = dic.get('C')
+    def _is_quoted(self, s):
+        return (s.startswith("\"") and s.endswith("\"")) or (s.startswith("\'") and s.endswith("\'"))
+
+    def _cleanup(self, d):
+        '''
+        Remove cruft locale, duplicates and extra encoding information
+        '''
+        if not d:
+            return d
+
+        if d.get('x-test'):
+            d.pop('x-test')
+        if d.get('xx'):
+            d.pop('xx')
+
+        unlocalized = d.get('C')
         if unlocalized:
             to_remove = []
-            for k in dic.keys():
-                if dic[k] == unlocalized and k != 'C':
-                    dic.pop(k)
+            for k in d.keys():
+                val = d[k]
+                # don't duplicate strings
+                if val == unlocalized and k != 'C':
+                    d.pop(k)
+                    continue
+                if self._is_quoted(val):
+                    d[k] = val.strip("\"'")
+                # should not specify encoding
+                if k.endswith('.UTF-8'):
+                    locale = k.strip('.UTF-8')
+                    d.pop(k)
+                    d[locale] = val
+                    continue
 
-        return dic
+        return d
 
-    def serialize_to_dic(self):
+    def finalize_to_dict(self):
         '''
-        Return a dic with all the properties
+        Do sanity checks and finalization work, then serialize the component to
+        a Python dict.
         '''
-        dic = {}
-        dic['Packages'] = [self._pkg]
-        if self.ID:
-            dic['ID'] = self.ID
+
+        # perform some cleanup work
+        self.name = self._cleanup(self.name)
+        self.summary = self._cleanup(self.summary)
+        self.description = self._cleanup(self.summary)
+        if self.screenshots:
+            for shot in self.screenshots:
+                caption = shot.get('caption')
+                if caption:
+                    shot['caption'] = self._cleanup(caption)
+
+        # validate the basics (if we don't ignore this already)
+        if not self.has_ignore_reason():
+            if not self.cid:
+                self._ignore_reasons.append("Component has no valid ID.")
+            if not self.kind:
+                self._ignore_reasons.append("Component has no type defined.")
+            if not self.name:
+                self._ignore_reasons.append("Component has no name specified.")
+            if not self._pkg:
+                self._ignore_reasons.append("Component has no package defined.")
+            if not self.summary:
+                self._ignore_reasons.append("Component does not contain a short summary.")
+
+        d = dict()
+        d['Packages'] = [self._pkg]
+        if self.cid:
+            d['ID'] = self.cid
         if self.kind:
-            dic['Type'] = self.kind
+            d['Type'] = self.kind
 
         # check if we need to print ignore information, instead
         # of exporting the software component
-        if self.ignore_reason:
-            dic['ID'] = self.ID
-            dic['Ignored'] = True
-            dic['Reason'] = self.ignore_reason
-            return dic
+        if self.has_ignore_reason():
+            d['Ignored'] = True
+            d['Reasons'] = self._ignore_reasons
+            return d
 
         if self.name:
-            dic['Name'] = self.cleanup(self.name)
+            d['Name'] = self.name
         if self.summary:
-            dic['Summary'] = self.cleanup(self.summary)
+            d['Summary'] = self.summary
         if self.categories:
-            dic['Categories'] = self.categories
+            d['Categories'] = self.categories
         if self.description:
-            dic['Description'] = self.description
+            d['Description'] = self.description
         if self.keywords:
-            dic['Keywords'] = self.keywords
+            d['Keywords'] = self.keywords
         if self.screenshots:
-            dic['Screenshots'] = self.screenshots
+            d['Screenshots'] = self.screenshots
         if self.archs:
-            dic['Architectures'] = self.archs
+            d['Architectures'] = self.archs
         if self.icon:
-            dic['Icon'] = {'cached': self.icon}
+            d['Icon'] = {'cached': self.icon}
         if self.url:
-            dic['Url'] = self.url
+            d['Url'] = self.url
         if self.provides:
-            dic['Provides'] = self.provides
+            d['Provides'] = self.provides
         if self.project_license:
-            dic['ProjectLicense'] = self.project_license
+            d['ProjectLicense'] = self.project_license
         if self.project_group:
-            dic['ProjectGroup'] = self.project_group
+            d['ProjectGroup'] = self.project_group
         if self.compulsory_for_desktop:
-            dic['CompulsoryForDesktops'] = self.compulsory_for_desktop
-        return dic
+            d['CompulsoryForDesktops'] = self.compulsory_for_desktop
+        return d
 
 
 class MetadataExtractor:
@@ -452,7 +494,7 @@ class MetadataExtractor:
                 f.write(image)
                 f.close()
             except Exception as e:
-                print("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.ID, str(e)))
+                print("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.cid, str(e)))
                 success = False
                 continue
 
@@ -464,7 +506,7 @@ class MetadataExtractor:
                 shot['source-image']['url'] = os.path.join(base_url, "source", "screenshot-%s.png" % (str(cnt)))
                 img.close()
             except Exception as e:
-                print("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.ID, str(e)))
+                print("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.cid, str(e)))
                 success = False
                 continue
 
@@ -525,7 +567,7 @@ class MetadataExtractor:
                 icon = icon + ".png"
 
             if not icon.endswith(('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')):
-                cpt.ignore_reason = "Icon file '%s' uses an unsupported image file format." % (cpt.icon)
+                cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (cpt.icon))
                 return False
 
             if icon[1:] in filelist:
@@ -547,7 +589,7 @@ class MetadataExtractor:
                                 cpt._component + '/' + flist[1])
                     return self._store_icon(cpt, flist[0], filepath)
 
-                cpt.ignore_reason = "Icon '%s' was not found in the archive." % (cpt.icon)
+                cpt.add_ignore_reason("Icon '%s' was not found in the archive." % (cpt.icon))
                 return False
 
         # keep metadata if Icon self itself is not present
@@ -584,10 +626,6 @@ class MetadataExtractor:
 
                     if not value:
                         continue
-
-                    # Should not specify encoding
-                    if key.endswith('.UTF-8'):
-                        key = key.strip('.UTF-8')
 
                     # Ignore the file if NoDisplay is true
                     if key == 'NoDisplay' and value == 'True':
@@ -856,7 +894,7 @@ class MetadataExtractor:
 
         if not filelist:
             compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
-            compdata.ignore_reason = "Could not determine file list for '%s'" % (os.path.basename(self._filename))
+            compdata.add_ignore_reason("Could not determine file list for '%s'" % (os.path.basename(self._filename)))
             return [compdata]
 
         component_dict = dict()
@@ -870,16 +908,16 @@ class MetadataExtractor:
                     xml_content = str(self._deb.data.extractdata(meta_file))
                 except Exception as e:
                     # inability to read an AppStream XML file is a valid ignore reason, skip this package.
-                    compdata.ignore_reason = "Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e))
+                    compdata.add_ignore_reason("Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e)))
                     return [compdata]
                 if xml_content:
                     self._read_xml(xml_content, compdata)
                     # Reads the desktop files associated with the xml file
-                    if compdata.ID:
-                        component_dict[compdata.ID] = compdata
+                    if compdata.cid:
+                        component_dict[compdata.cid] = compdata
                     else:
                         # if there is no ID at all, we dump this component, since we cannot do anything with it at all
-                        compdata.ignore_reason = "Could not determine an id for this component."
+                        compdata.add_ignore_reason("Could not determine an id for this component.")
             else:
                 # We have a .desktop file
                 dcontent = None
@@ -895,16 +933,15 @@ class MetadataExtractor:
                 compdata = component_dict.get(cpt_id)
                 if not compdata:
                     compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
-                    compdata.ID = cpt_id
+                    compdata.cid = cpt_id
                 self._read_desktop(dcontent, compdata)
-                if not compdata.ignore_reason:
+                if not compdata.has_ignore_reason():
                     component_dict[cpt_id] = compdata
 
         for cpt in component_dict.values():
             self._fetch_icon(cpt, filelist)
             if cpt.kind == 'desktop-app' and not cpt.icon:
-                if not cpt.ignore_reason:
-                    cpt.ignore_reason = "GUI application, but no valid icon found."
+                cpt.add_ignore_reason("GUI application, but no valid icon found.")
             else:
                 self._fetch_screenshots(cpt)
 
@@ -931,10 +968,10 @@ class MetadataPool:
             self._mcpts[arch] = dict()
             cpts = self._mcpts[arch]
         for c in compdatalist:
-            if cpts.get(c.ID):
-                print("WARNING: Duplicate ID detected: %s" % (c.ID))
+            if cpts.get(c.cid):
+                print("WARNING: Duplicate ID detected: %s" % (c.cid))
                 continue
-            cpts[c.ID] = c
+            cpts[c.cid] = c
 
     def export(self, session):
         """
@@ -946,12 +983,12 @@ class MetadataPool:
             dep11 = DEP11Metadata(session)
             for cdata in cpts.values():
                 # get the metadata in YAML format
-                metadata = yaml.dump(cdata.serialize_to_dic(), Dumper=DEP11YAMLDumper,
+                metadata = yaml.dump(cdata.finalize_to_dict(), Dumper=DEP11YAMLDumper,
                             default_flow_style=False, explicit_start=True,
                             explicit_end=False, width=100, indent=2,
                             allow_unicode=True)
                 # store metadata in database
-                dep11.insertdata(cdata._binid, metadata, cdata.ignore_reason != None)
+                dep11.insertdata(cdata._binid, metadata, cdata.has_ignore_reason())
         # commit all changes
         session.commit()
 
@@ -966,7 +1003,7 @@ def make_icon_tar(suitename, component):
     icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", "*.*")
     tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
 
-    icon_tar_fname = os.path.join(tar_location, "icons-%s_64px.tar.gz" % (component))
+    icon_tar_fname = os.path.join(tar_location, "icons-%s_64x64.tar.gz" % (component))
     tar = tarfile.open(icon_tar_fname, "w:gz")
 
     for filename in glob.glob(icon_location_glob):
