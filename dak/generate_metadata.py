@@ -388,9 +388,10 @@ class MetadataExtractor:
         self._mfiles = metainfo_files
         self._binid = binid
 
-        self._export_path = "%s/%s/%s/%s-%s" % (Config()["Dir::MetaInfo"],
-                                self._suite_name, self._component,
+        component_basepath = "%s/%s/%s-%s" % (self._suite_name, self._component,
                                 self._pkgname, str(self._binid))
+        self._export_path = "%s/%s" % (Config()["Dir::MetaInfo"], component_basepath)
+        self._public_url = "%s/%s" % (Config()["Url::DEP11"], component_basepath)
 
     def _deb_filelist(self):
         '''
@@ -407,23 +408,23 @@ class MetadataExtractor:
 
         return files
 
-    def _scale_screenshots(self, imgsrc, path):
+    def _scale_screenshot(self, imgsrc, cpt_export_path, cpt_scr_url):
         '''
         scale images in three sets of two-dimensions
         (752x423 624x351 and 112x63)
         '''
         thumbnails = []
-        name = imgsrc.split('/').pop()
+        name = os.path.basename(imgsrc)
         sizes = ['752x423', '624x351', '112x63']
         for size in sizes:
             wd, ht = size.split('x')
             img = Image.open(imgsrc)
             newimg = img.resize((int(wd), int(ht)), Image.ANTIALIAS)
-            newpath = path+size+"/"
+            newpath = os.path.join(cpt_export_path, size)
             if not os.path.exists(newpath):
-                os.makedirs(os.path.dirname(newpath))
-            newimg.save(newpath+name)
-            url = self.make_url(newpath+name)
+                os.makedirs(newpath)
+            newimg.save(os.path.join(newpath, name))
+            url = "%s/%s/%s" % (cpt_scr_url, size, name)
             thumbnails.append({'url': url, 'height': int(ht),
                                'width': int(wd)})
 
@@ -434,51 +435,52 @@ class MetadataExtractor:
         Fetches screenshots from the given url and
         stores it in png format.
         '''
-        if cpt.screenshots:
-            success = True
-            shots = list()
-            cnt = 1
-            for shot in cpt.screenshots:
-                origin_url = shot['source-image']['url']
-                try:
-                    image = urllib.urlopen(origin_url).read()
-                    path = "%s/screenshots/" % (self._export_path)
-                    if not os.path.exists(path):
-                        os.makedirs(os.path.dirname(path + "source/"))
-                    f = open('%ssource/screenshot-%s.png' % (path, str(cnt)), 'wb')
-                    f.write(image)
-                    f.close()
-                except Exception as e:
-                    print("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.ID, str(e)))
-                    success = False
-                    continue
+        if not cpt.screenshots:
+            # don't ignore metadata if screenshots itself is not present
+            return True
 
-                try:
-                    img = Image.open('%ssource/screenshot-%s.png' % (path, str(cnt)))
-                    wd, ht = img.size
-                    shot['source-image']['width'] = wd
-                    shot['source-image']['height'] = ht
-                    shot['source-image']['url'] = self.make_url(
-                        '%ssource/screenshot-%s.png' % (path, str(cnt)))
-                    img.close()
-                except Exception as e:
-                    print("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.ID, str(e)))
-                    success = False
-                    continue
+        success = True
+        shots = list()
+        cnt = 1
+        for shot in cpt.screenshots:
+            # cache some locations which we need later
+            origin_url = shot['source-image']['url']
+            path = os.path.join(self._export_path, "screenshots")
+            base_url = os.path.join(self._public_url, "screenshots")
+            imgsrc = os.path.join(path, "source", "screenshot-%s.png" % (str(cnt)))
+            try:
+                image = urllib.urlopen(origin_url).read()
+                if not os.path.exists(os.path.dirname(imgsrc)):
+                    os.makedirs(os.path.dirname(imgsrc))
+                f = open(imgsrc, 'wb')
+                f.write(image)
+                f.close()
+            except Exception as e:
+                print("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.ID, str(e)))
+                success = False
+                continue
 
-                # scale_screenshots will return a list of
-                # dicts with {height,width,url}
-                shot['thumbnails'] = self._scale_screenshots(
-                    '%ssource/screenshot-%s.png' % (path, str(cnt)), path)
-                shots.append(shot)
-                print("New screenshot cached from %s" % (origin_url))
-                cnt = cnt + 1
+            try:
+                img = Image.open(imgsrc)
+                wd, ht = img.size
+                shot['source-image']['width'] = wd
+                shot['source-image']['height'] = ht
+                shot['source-image']['url'] = os.path.join(base_url, "source", "screenshot-%s.png" % (str(cnt)))
+                img.close()
+            except Exception as e:
+                print("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.ID, str(e)))
+                success = False
+                continue
 
-            cpt.screenshots = shots
-            return success
+            # scale_screenshots will return a list of
+            # dicts with {height,width,url}
+            shot['thumbnails'] = self._scale_screenshot(imgsrc, path, base_url)
+            shots.append(shot)
+            print("New screenshot cached from %s" % (origin_url))
+            cnt = cnt + 1
 
-        # don't ignore metadata if screenshots itself is not present
-        return True
+        cpt.screenshots = shots
+        return success
 
     def _store_icon(self, cpt, icon, filepath):
         '''
@@ -1125,7 +1127,15 @@ def main():
     suitename = Options["Suite"]
     if not suitename:
         print("You need to specify a suite!")
-        return
+        sys.exit(1)
+
+    # check if we have some important config options set
+    if not cnf.has_key("Dir::MetaInfo"):
+        print("You need to specify a metadata export directory (Dir::MetaInfo)")
+        sys.exit(1)
+    if not cnf.has_key("Url::DEP11"):
+        print("You need to specify a metadata public web URL (Url::DEP11)")
+        sys.exit(1)
 
     logger = daklog.Logger('generate-metadata')
 
