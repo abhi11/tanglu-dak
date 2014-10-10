@@ -158,39 +158,6 @@ class IconFinder():
         """
         self._session.close()
 
-
-class BinDEP11Data():
-    def __init__(self,params):
-        self._params = params
-        self._session = DBConn().session()
-
-    def fetch_docs(self):
-        '''
-        Fetches the YAML docs if the ignore field is false
-        Per arch per component per suite basis
-        '''
-        # SQL to fetch metadata
-        sql = """
-        select bd.metadata
-        from
-        bin_dep11 bd, binaries b, bin_associations ba, suite s,
-        override o, component c, architecture a
-        where bd.ignore = FALSE and bd.binary_id = b.id and b.package = o.package
-        and o.component = c.id and c.name = :component and b.id = ba.bin
-        and ba.suite = s.id and s.suite_name = :suite and
-        b.architecture = a.id and a.arch_string = :architecture
-        """
-
-        result = self._session.execute(sql, self._params)
-        rows = result.fetchall()
-        return rows
-
-    def close(self):
-        """
-        Closes the session
-        """
-        self._session.close()
-
 # For testing
 
 if __name__ == "__main__":

@@ -438,6 +438,9 @@ class MetadataExtractor:
         for shot in cpt.screenshots:
             # cache some locations which we need later
             origin_url = shot['source-image']['url']
+            if not origin_url:
+                # url empty? skip this screenshot
+                continue
             path = os.path.join(self._export_path, "screenshots")
             base_url = os.path.join(self._public_url, "screenshots")
             imgsrc = os.path.join(path, "source", "screenshot-%s.png" % (str(cnt)))
@@ -1037,38 +1040,52 @@ def process_suite(session, suite, logger, force=False):
 
         logger.log(["Completed metadata extraction for suite %s/%s" % (suite.suite_name, component)])
 
-def write_component_files(suite):
+def write_component_files(session, suite):
     '''
-    Writes the metadata into Component-<arch>.xz
+    Writes the metadata into Component-<arch>.yml.xz
     Ignores if ignore is True in the db
     '''
+
+    # SQL to fetch metadata
+    sql = """
+        select distinct bd.metadata
+        from
+        bin_dep11 bd, binaries b, bin_associations ba,
+        override o
+        where bd.ignore = FALSE and bd.binary_id = b.id and b.package = o.package
+        and o.component = :component_id and b.id = ba.bin
+        and ba.suite = :suite_id and b.architecture = :arch_id
+        """
+
     print("Writing DEP-11 files for %s" % (suite.suite_name))
-    for component in [ c.component_name for c in suite.components ]:
+    for c in suite.components:
         # writing per <arch>
-        for arch in [ a.arch_string for a in suite.architectures ]:
-            if arch == "source":
+        for arch in suite.architectures:
+            if arch.arch_string == "source":
                 continue
 
             head_dict = dep11_header
-            head_dict['Origin'] = "%s-%s" % (suite.suite_name, component)
+            head_dict['Origin'] = "%s-%s" % (suite.suite_name, c.component_name)
             head_string = yaml.dump(head_dict, Dumper=DEP11YAMLDumper,
                                     default_flow_style=False, explicit_start=True,
                                     explicit_end=False, width=200, indent=2)
             values = {
-                'archive' : suite.archive.path,
-                'suite' : suite.suite_name,
-                'component' : component,
-                'architecture' : arch
+                'archive'  : suite.archive.path,
+                'suite_id' : suite.suite_id,
+                'suite'    : suite.suite_name,
+                'component_id' : c.component_id,
+                'component'    : c.component_name,
+                'arch_id' : arch.arch_id,
+                'arch'    : arch.arch_string
             }
 
             writer = DEP11DataFileWriter(**values)
             ofile = writer.open()
             ofile.write(head_string)
-            dep11_data = BinDEP11Data(values)
-            res = dep11_data.fetch_docs()
-            for doc in res:
+
+            result = session.execute(sql, values)
+            for doc in result:
                 ofile.write(doc[0])
-            dep11_data.close()
             writer.close()
 
 def expire_dep11_data_cache(session, suitename):
@@ -1141,7 +1158,7 @@ def main():
 
     process_suite(session, suite, logger)
     # export database content as Components-<arch>.xz YAML documents
-    write_component_files(suite)
+    write_component_files(session, suite)
 
     # we're done
     logger.close()
