@@ -175,5 +175,5 @@ class DEP11DataFileWriter(BaseFileWriter):
             'compression':['xz'],
         }
         flags.update(keywords)
-        template = "%(archive)s/dists/%(suite)s/%(component)s/Components-%(architecture)s"
+        template = "%(archive)s/dists/%(suite)s/%(component)s/Components-%(architecture)s.yml"
         BaseFileWriter.__init__(self, template, **flags)
