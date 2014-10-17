@@ -31,7 +31,7 @@ import re
 import sys
 import urllib
 import glob
-import sha
+import uuid
 import tarfile
 import shutil
 import datetime
@@ -143,8 +143,8 @@ class ComponentData:
         self._binid = binid
 
         # properties
-        self._compulsory_for_desktop = None
         self._ignore_reasons = list()
+
         self._id = None
         self._type = None
         self._name = dict()
@@ -159,6 +159,9 @@ class ComponentData:
         self._url = None
         self._project_license = None
         self._project_group = None
+        self._developer_name = dict()
+        self._extends = list()
+        self._compulsory_for_desktops = list()
 
     def add_ignore_reason(self, msg):
         self._ignore_reasons.append(msg)
@@ -183,14 +186,6 @@ class ComponentData:
     @kind.setter
     def kind(self, val):
         self._type = val
-
-    @property
-    def compulsory_for_desktop(self):
-        return self._compulsory_for_desktop
-
-    @compulsory_for_desktop.setter
-    def compulsory_for_desktop(self, val):
-        self._compulsory_for_desktop = val
 
     @property
     def name(self):
@@ -273,6 +268,14 @@ class ComponentData:
         self._url = val
 
     @property
+    def compulsory_for_desktops(self):
+        return self._compulsory_for_desktops
+
+    @compulsory_for_desktops.setter
+    def compulsory_for_desktops(self, val):
+        self._compulsory_for_desktops = val
+
+    @property
     def project_license(self):
         return self._project_license
 
@@ -287,6 +290,22 @@ class ComponentData:
     @project_group.setter
     def project_group(self, val):
         self._project_group = val
+
+    @property
+    def developer_name(self):
+        return self._developer_name
+
+    @developer_name.setter
+    def developer_name(self, val):
+        self._developer_name = val
+
+    @property
+    def extends(self):
+        return self._extends
+
+    @extends.setter
+    def extends(self, val):
+        self._extends = val
 
     def add_provided_item(self, kind, value):
         if kind not in self.provides.keys():
@@ -338,7 +357,7 @@ class ComponentData:
         # perform some cleanup work
         self.name = self._cleanup(self.name)
         self.summary = self._cleanup(self.summary)
-        self.description = self._cleanup(self.summary)
+        self.description = self._cleanup(self.description)
         if self.screenshots:
             for shot in self.screenshots:
                 caption = shot.get('caption')
@@ -396,8 +415,12 @@ class ComponentData:
             d['ProjectLicense'] = self.project_license
         if self.project_group:
             d['ProjectGroup'] = self.project_group
-        if self.compulsory_for_desktop:
-            d['CompulsoryForDesktops'] = self.compulsory_for_desktop
+        if self.developer_name:
+            d['DeveloperName'] = self.developer_name
+        if self.extends:
+            d['Extends'] = self.extends
+        if self.compulsory_for_desktops:
+            d['CompulsoryForDesktops'] = self.compulsory_for_desktops
         return d
 
 
@@ -470,6 +493,7 @@ class MetadataExtractor:
         Fetches screenshots from the given url and
         stores it in png format.
         '''
+        return True
         if not cpt.screenshots:
             # don't ignore metadata if screenshots itself is not present
             return True
@@ -709,57 +733,56 @@ class MetadataExtractor:
                 except:
                     pass
 
-    def neat(self, s):
-        '''
-        Utility for parse_description_tag
-        '''
-        s = s.strip()
-        s = " ".join(s.split())
-        return s
+    def _get_tag_locale(self, subs):
+        attr_dic = subs.attrib
+        if attr_dic:
+            locale = attr_dic.get('{http://www.w3.org/XML/1998/namespace}lang')
+            if locale:
+                return locale
+        return "C"
 
     def _parse_description_tag(self, subs):
         '''
         Handles the description tag
         '''
-        dic = {}
+
+        def clear_linebreaks(s):
+            s = s.strip()
+            s = " ".join(s.split())
+            return s
+
+        ddict = dict()
+
+        # The description tag translation is combined per language,
+        # for faster parsing on the client side.
+        # In case no translation is found, the untranslated version is used instead.
+        # the DEP-11 YAML stores the description as HTML
+
         for usubs in subs:
-            attr_dic = usubs.attrib
-            if attr_dic:
-                for v in attr_dic.values():
-                    key = v
-            else:
-                key = 'C'
+            locale = self._get_tag_locale(usubs)
 
             if usubs.tag == 'p':
-                if dic.get(key):
-                    dic[key] += "<p>%s</p>" % self.neat(enc_dec(usubs.text))
-                else:
-                    dic[key] = "<p>%s</p>" % self.neat(enc_dec(usubs.text))
-
-            if usubs.tag == 'ul' or usubs.tag == 'ol':
-                for k in dic.keys():
-                    dic[k] += "<%s>" % usubs.tag
-
+                if not locale in ddict:
+                    ddict[locale] = ""
+                ddict[locale] += "<p>%s</p>" % enc_dec(clear_linebreaks(usubs.text))
+            elif usubs.tag == 'ul' or usubs.tag == 'ol':
+                tmp_dict = dict()
+                # find the right locale, or fallback to untranslated
                 for u_usubs in usubs:
-                    attr_dic = u_usubs.attrib
-                    if attr_dic:
-                        for v in attr_dic.values():
-                            key = v
-                    else:
-                        key = 'C'
+                    locale = self._get_tag_locale(u_usubs)
+
+                    if not locale in tmp_dict:
+                        tmp_dict[locale] = ""
 
                     if u_usubs.tag == 'li':
-                        if dic.get(key):
-                            dic[key] += "<li>%s</li>" % \
-                                        self.neat(enc_dec(u_usubs.text))
-                        else:
-                            dic[key] = "<%s><li>%s</li>" % \
-                                       (usubs.tag, self.neat(enc_dec
-                                                             (u_usubs.text)))
+                        tmp_dict[locale] += "<li>%s</li>" % enc_dec(clear_linebreaks(u_usubs.text))
 
-                for k in dic.keys():
-                    dic[k] += "</%s>" % usubs.tag
-        return dic
+                for locale, value in tmp_dict.items():
+                    if not locale in ddict:
+                        # This should not happen (but better be prepared)
+                        ddict[locale] = ""
+                    ddict[locale] += "<%s>%s</%s>" % (usubs.tag, value, usubs.tag)
+        return ddict
 
     def _parse_screenshots_tag(self, subs):
         '''
@@ -821,6 +844,8 @@ class MetadataExtractor:
                 compdata.kind = root.attrib['type']
 
         for subs in root:
+            locale = self._get_tag_locale(subs)
+
             if subs.tag == 'id':
                 compdata.cid = subs.text
                 # legacy support
@@ -831,15 +856,21 @@ class MetadataExtractor:
                     else:
                         compdata.kind = root.attrib['type']
 
-            if subs.tag == "description":
+            elif subs.tag == "name":
+                compdata.name[locale] = subs.text
+
+            elif subs.tag == "summary":
+                compdata.summary[locale] = subs.text
+
+            elif subs.tag == "description":
                 desc = self._parse_description_tag(subs)
                 compdata.description = desc
 
-            if subs.tag == "screenshots":
+            elif subs.tag == "screenshots":
                 screen = self._parse_screenshots_tag(subs)
                 compdata.screenshots = screen
 
-            if subs.tag == "provides":
+            elif subs.tag == "provides":
                 for bins in subs:
                     if bins.tag == "binary":
                         compdata.add_provided_item(
@@ -870,23 +901,26 @@ class MetadataExtractor:
                             ProvidedItemType.CODEC, bins.text
                         )
 
-            if subs.tag == "url":
+            elif subs.tag == "url":
                 if compdata.url:
                     compdata.url.update({subs.attrib['type']: subs.text})
                 else:
                     compdata.url = {subs.attrib['type']: subs.text}
 
-            if subs.tag == "project_license":
+            elif subs.tag == "project_license":
                 compdata.project_license = subs.text
 
-            if subs.tag == "project_group":
+            elif subs.tag == "project_group":
                 compdata.project_group = subs.text
 
-            if subs.tag == "CompulsoryForDesktop":
-                if compdata.compulsory_for_desktop:
-                    compdata.compulsory_for_desktop.append(subs.text)
-                else:
-                    compdata.compulsory_for_desktop = [subs.text]
+            elif subs.tag == "developer_name":
+                compdata.developer_name[locale] = subs.text
+
+            elif subs.tag == "extends":
+                compdata.extends.append(subs.text)
+
+            elif subs.tag == "compulsory_for_desktop":
+                compdata.compulsory_for_desktops.append(subs.text)
 
     def get_cptdata(self):
         '''
@@ -977,7 +1011,8 @@ class MetadataPool:
         for c in compdatalist:
             if cpts.get(c.cid):
                 print("WARNING: Duplicate ID detected: %s" % (c.cid))
-                continue
+                c.add_ignore_reason("Adding this component would duplicate the ID '%s'." % (c.cid))
+                c.cid = "~%s%s" % (str(uuid.uuid4()), c.cid)
             cpts[c.cid] = c
 
     def export(self, session):
