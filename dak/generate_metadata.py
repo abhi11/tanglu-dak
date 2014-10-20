@@ -605,7 +605,7 @@ class MetadataExtractor:
 
                 # the IconFinder runs it's own, new session, since we run multiprocess here
                 ficon = IconFinder(self._pkgname, icon, self._binid)
-                flist = ficon.query_icon()
+                flist = ficon.get_icon()
                 ficon.close()
 
                 if flist:

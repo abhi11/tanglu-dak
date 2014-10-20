@@ -114,20 +114,31 @@ class IconFinder():
     searches icons of similar packages. Ignores the package with binid.
     '''
     def __init__(self, package, icon, binid):
-        self._params = {
-            'package': '%' + package + '%',
-            'icon1': 'usr/share/icons/%' + icon + '%',
-            'icon2': 'usr/share/pixmaps/%' + icon + '%',
-            'id': binid
-        }
         self._session = DBConn().session()
+        self._package = package
         self._icon = icon
+        self._binid = binid
 
-    def query_icon(self):
+    def query_icon(self, size=None):
         '''
         function to query icon files from similar packages.
         Returns path of the icon
         '''
+        if size:
+            params = {
+                'package': '%' + package + '%',
+                'icon1': 'usr/share/%icons/%' + size + '%' + icon + '%',
+                'icon2': 'usr/share/%pixmaps/%' + size + '%' + icon + '%',
+                'id': binid
+            }
+        else:
+            params = {
+                'package': '%' + package + '%',
+                'icon1': 'usr/share/%icons/%' + icon + '%',
+                'icon2': 'usr/share/%pixmaps/%' + icon + '%',
+                'id': binid
+            }
+
         sql = """ select bc.file, f.filename
         from binaries b, bin_contents bc, files f
         where b.file = f.id and b.package like :package
@@ -135,7 +146,7 @@ class IconFinder():
         (bc.file not like '%.xpm' and bc.file not like '%.tiff')
         and b.id <> :id and b.id = bc.binary_id"""
 
-        result = self._session.execute(sql, self._params)
+        result = self._session.execute(sql, params)
         rows = result.fetchall()
 
         for r in rows:
@@ -147,10 +158,25 @@ class IconFinder():
                or path.endswith(self._icon+'.xcf')\
                or path.endswith(self._icon+'.gif')\
                or path.endswith(self._icon+'.svgz'):
-                # Write the logic to sekect the best icon of all
                 return [path, filename]
 
         return False
+    
+    def get_icon(self):
+        '''
+        Returns the best possible icon available
+        '''
+        sizes = ['256x256', '128x128', '64x64', '48x48']
+
+        for size in sizes:
+            to_return = query_icon(size)
+            if (to_return):
+                return to_return
+        
+        #if no result search without size
+        to_return = query_icon()
+        if (to_return):
+            return to_return
 
     def close(self):
         """
