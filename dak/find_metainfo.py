@@ -126,17 +126,17 @@ class IconFinder():
         '''
         if size:
             params = {
-                'package': '%' + package + '%',
-                'icon1': 'usr/share/%icons/%' + size + '%' + icon + '%',
-                'icon2': 'usr/share/%pixmaps/%' + size + '%' + icon + '%',
-                'id': binid
+                'package': '%' + self._package + '%',
+                'icon1': 'usr/share/%icons/%' + size + '%' + self._icon + '%',
+                'icon2': 'usr/share/%pixmaps/%' + size + '%' + self._icon + '%',
+                'id': self._binid
             }
         else:
             params = {
-                'package': '%' + package + '%',
-                'icon1': 'usr/share/%icons/%' + icon + '%',
-                'icon2': 'usr/share/%pixmaps/%' + icon + '%',
-                'id': binid
+                'package': '%' + self._package + '%',
+                'icon1': 'usr/share/%icons/%' + self._icon + '%',
+                'icon2': 'usr/share/%pixmaps/%' + self._icon + '%',
+                'id': self._binid
             }
 
         sql = """ select bc.file, f.filename
@@ -169,13 +169,17 @@ class IconFinder():
         sizes = ['256x256', '128x128', '64x64', '48x48']
 
         for size in sizes:
-            to_return = query_icon(size)
+            to_return = self.query_icon(size)
             if (to_return):
+                print("found size %s" % size)
+                print(to_return)
                 return to_return
         
         #if no result search without size
-        to_return = query_icon()
+        to_return = self.query_icon()
         if (to_return):
+            print("no size")
+            print(to_return)
             return to_return
 
     def close(self):
@@ -191,19 +195,9 @@ if __name__ == "__main__":
     ap = appdata()
     ap.comb_appdata()
     ap.printfiles()
-    f = findicon("aqemu","aqemu",48)
-    f.queryicon()
     # ##
     #clear_cached_dep11_data()
     '''
-    ap = appdata()
-    #    ap.find_desktop(component = 'main', suitename='aequorea')
-    #    ap.find_xml(component = 'main', suitename='aequorea')
-    ap.find_meta_files(component='main',suitename='bartholomea')
-    for arc in ap.arch_deblist.keys():
-        print arc
-        for k in ap.arch_deblist[arc]:
-            print (k,ap._pkglist[k],ap._idlist[k])
-
-        print(ap._deskdic)
-    ap.close()
+    #test
+    f = IconFinder("amarok","amarok",140743)
+    f.get_icon()
