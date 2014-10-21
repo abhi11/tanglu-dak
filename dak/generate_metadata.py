@@ -493,7 +493,6 @@ class MetadataExtractor:
         Fetches screenshots from the given url and
         stores it in png format.
         '''
-        return True
         if not cpt.screenshots:
             # don't ignore metadata if screenshots itself is not present
             return True

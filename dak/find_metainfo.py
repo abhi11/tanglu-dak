@@ -141,7 +141,7 @@ class IconFinder():
 
         sql = """ select bc.file, f.filename
         from binaries b, bin_contents bc, files f
-        where b.file = f.id and b.package like :package
+        where b.package like :package and b.file = f.id
         and (bc.file like :icon1 or bc.file like :icon2) and
         (bc.file not like '%.xpm' and bc.file not like '%.tiff')
         and b.id <> :id and b.id = bc.binary_id"""
@@ -161,7 +161,7 @@ class IconFinder():
                 return [path, filename]
 
         return False
-    
+
     def get_icon(self):
         '''
         Returns the best possible icon available
@@ -174,7 +174,7 @@ class IconFinder():
                 print("found size %s" % size)
                 print(to_return)
                 return to_return
-        
+
         #if no result search without size
         to_return = self.query_icon()
         if (to_return):
