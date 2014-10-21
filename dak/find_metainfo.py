@@ -166,21 +166,24 @@ class IconFinder():
         '''
         Returns the best possible icon available
         '''
-        sizes = ['256x256', '128x128', '64x64', '48x48']
+        sizes = ['128x128', '64x64', '48x48']
+        size_map_flist = dict()
 
         for size in sizes:
-            to_return = self.query_icon(size)
-            if (to_return):
-                print("found size %s" % size)
-                print(to_return)
-                return to_return
+            flist = self.query_icon(size)
+            if (flist):
+                if (size == '128x128'):
+                    size_map_flist[size] = flist
+                else:
+                    size_map_flist['64x64'] = flist
 
-        #if no result search without size
-        to_return = self.query_icon()
-        if (to_return):
-            print("no size")
-            print(to_return)
-            return to_return
+        #we cheat here, consider a normal size as '64x64'
+        if '64x64' not in size_map_flist.keys():
+            flist = self.query_icon()
+            if (flist):
+                size_map_flist = {'64x64':flist}
+        print(size_map_flist)
+        return size_map_flist
 
     def close(self):
         """

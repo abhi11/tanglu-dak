@@ -543,11 +543,11 @@ class MetadataExtractor:
         cpt.screenshots = shots
         return success
 
-    def _store_icon(self, cpt, icon, filepath):
+    def _store_icon(self, cpt, icon, filepath, size):
         '''
         Extracts the icon from the deb package and stores it in the cache.
         '''
-        path = "%s/icons/" % (self._export_path)
+        path = "%s/icons/%s/" % (self._export_path, size)
         icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
         cpt.icon = icon_name
 
@@ -594,23 +594,25 @@ class MetadataExtractor:
                 return False
 
             if icon[1:] in filelist:
-                return self._store_icon(cpt, icon[1:], self._filename)
+                return self._store_icon(cpt, icon[1:], self._filename, '64x64')
             else:
                 ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
                 for path in filelist:
                     if path.endswith(ext_allowed):
                         if 'pixmaps' in path or 'icons' in path:
-                            return self._store_icon(cpt, path, self._filename)
+                            return self._store_icon(cpt, path, self._filename, '64x64')
 
                 # the IconFinder runs it's own, new session, since we run multiprocess here
                 ficon = IconFinder(self._pkgname, icon, self._binid)
-                flist = ficon.get_icon()
+                size_flist_dict = ficon.get_icon()
                 ficon.close()
-
-                if flist:
-                    filepath = (Config()["Dir::Pool"] +
-                                cpt._component + '/' + flist[1])
-                    return self._store_icon(cpt, flist[0], filepath)
+                success = False
+                if size_flist:
+                    for size in size_flist.iterkeys():
+                        filepath = (Config()["Dir::Pool"] +
+                                    cpt._component + '/' + size_flist[size][1])
+                        success = self._store_icon(cpt, size_flist[size][0], filepath, size) or success
+                    return success
 
                 cpt.add_ignore_reason("Icon '%s' was not found in the archive." % (cpt.icon))
                 return False
@@ -1040,18 +1042,19 @@ def make_icon_tar(suitename, component):
     '''
      icons-%(component)_%(size).tar.gz of each Component.
     '''
+    sizes  = ['128x128', '64x64']
+    for size in sizes:
+        icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", size, "*.*")
+        tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
 
-    icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", "*.*")
-    tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
+        icon_tar_fname = os.path.join(tar_location, "icons-%s_%s.tar.gz" % (component, size))
+        tar = tarfile.open(icon_tar_fname, "w:gz")
 
-    icon_tar_fname = os.path.join(tar_location, "icons-%s_64x64.tar.gz" % (component))
-    tar = tarfile.open(icon_tar_fname, "w:gz")
+        for filename in glob.glob(icon_location_glob):
+            icon_name = os.path.basename (filename)
+            tar.add(filename,arcname=icon_name)
 
-    for filename in glob.glob(icon_location_glob):
-        icon_name = os.path.basename (filename)
-        tar.add(filename,arcname=icon_name)
-
-    tar.close()
+        tar.close()
 
 def extract_metadata(sn, c, pkgname, metainfo_files, binid, package_fname, arch):
     mde = MetadataExtractor(sn, c, pkgname, metainfo_files, binid, package_fname)
