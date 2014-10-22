@@ -94,7 +94,7 @@ def enc_dec(val):
     Handles encoding decoding for localised values
     '''
     try:
-        val = unicode(val, "UTF-8")
+        val = unicode(val, "UTF-8", errors='replace')
     except TypeError:
         # already unicode
         pass
@@ -658,97 +658,97 @@ class MetadataExtractor:
         lines = dcontent.splitlines()
         for line in lines:
             line = self._strip_comment(line)
-            if line:
-                # spliting into key-value pairs
-                tray = line.split("=", 1)
-                try:
-                    key = tray[0].strip()
-                    value = enc_dec(tray[1].strip())
+            if not line:
+                continue
+            # spliting into key-value pairs
+            tray = line.split("=", 1)
+            if len(tray) != 2:
+                continue
 
-                    if not value:
-                        continue
+            key = enc_dec(tray[0]).strip()
+            value = enc_dec(tray[1].strip())
 
-                    # Ignore the file if NoDisplay is true
-                    if key == 'NoDisplay' and value == 'True':
-                        # we ignore this .desktop file, shouldn't be displayed
-                        break
+            if not value:
+                continue
 
-                    if key == 'Type' and value != 'Application':
-                        # ignore this file, isn't an application
-                        break
-                    else:
-                        compdata.kind = 'desktop-app'
+            # Ignore the file if NoDisplay is true
+            if key == 'NoDisplay' and value == 'True':
+                # we ignore this .desktop file, shouldn't be displayed
+                break
 
-                    if key.startswith('Name'):
-                        if key == 'Name':
-                            compdata.name['C'] = value
-                        else:
-                            compdata.name[key[5:-1]] = value
-                        continue
+            if key == 'Type' and value != 'Application':
+                # ignore this file, isn't an application
+                break
+            else:
+                compdata.kind = 'desktop-app'
 
-                    if key == 'Categories':
-                        value = value.split(';')
-                        value.pop()
-                        compdata.categories = value
-                        continue
+            if key.startswith('Name'):
+                if key == 'Name':
+                    compdata.name['C'] = value
+                else:
+                    compdata.name[key[5:-1]] = value
+                continue
 
-                    if key.startswith('Comment'):
-                        if key == 'Comment':
-                            compdata.summary['C'] = value
-                        else:
-                            compdata.summary[key[8:-1]] = value
-                        continue
+            elif key == 'Categories':
+                value = value.split(';')
+                value.pop()
+                compdata.categories = value
+                continue
 
-                    if key.startswith('Keywords'):
-                        value = re.split(';|,', value)
-                        if not value[-1]:
-                            value.pop()
-                        if key[8:] == '':
-                            if compdata.keywords:
-                                if set(value) not in \
-                                   [set(val) for val in
-                                        compdata.keywords.values()]:
-                                    compdata.keywords.update(
-                                        {'C': map(enc_dec, value)}
-                                    )
-                            else:
-                                compdata.keywords = {
-                                    'C': map(enc_dec, value)
-                                }
-                        else:
-                            if compdata.keywords:
-                                if set(value) not in \
-                                   [set(val) for val in
-                                        compdata.keywords.values()]:
-                                    compdata.keywords.update(
-                                        {key[9:-1]: map(enc_dec, value)}
-                                    )
-                            else:
-                                compdata.keywords = {
-                                    key[9:-1]: map(enc_dec, value)
-                                }
-                        continue
+            elif key.startswith('Comment'):
+                if key == 'Comment':
+                    compdata.summary['C'] = value
+                else:
+                    compdata.summary[key[8:-1]] = value
+                continue
 
-                    if key == 'MimeType':
-                        value = value.split(';')
-                        if len(value) > 1:
-                            value.pop()
-                        for val in value:
-                            compdata.add_provided_item(
-                                ProvidedItemType.MIMETYPE, val
+            elif key.startswith('Keywords'):
+                value = re.split(';|,', value)
+                if not value[-1]:
+                    value.pop()
+                if key[8:] == '':
+                    if compdata.keywords:
+                        if set(value) not in \
+                            [set(val) for val in
+                                compdata.keywords.values()]:
+                            compdata.keywords.update(
+                                {'C': map(enc_dec, value)}
                             )
-                        continue
+                    else:
+                        compdata.keywords = {
+                            'C': map(enc_dec, value)
+                        }
+                else:
+                    if compdata.keywords:
+                        if set(value) not in \
+                            [set(val) for val in
+                                compdata.keywords.values()]:
+                            compdata.keywords.update(
+                                {key[9:-1]: map(enc_dec, value)}
+                            )
+                    else:
+                        compdata.keywords = {
+                            key[9:-1]: map(enc_dec, value)
+                        }
+                continue
 
-                    if 'Architectures' in key:
-                        val_list = value.split(',')
-                        compdata.archs = val_list
-                        continue
+            elif key == 'MimeType':
+                value = value.split(';')
+                if len(value) > 1:
+                    value.pop()
+                for val in value:
+                    compdata.add_provided_item(
+                        ProvidedItemType.MIMETYPE, val
+                    )
+                continue
 
-                    if key == 'Icon':
-                        compdata.icon = value
+            elif 'Architectures' in key:
+                val_list = value.split(',')
+                compdata.archs = val_list
+                continue
 
-                except:
-                    pass
+            elif key == 'Icon':
+                compdata.icon = value
 
     def _get_tag_locale(self, subs):
         attr_dic = subs.attrib
@@ -871,7 +871,7 @@ class MetadataExtractor:
                     if key == 'desktop':
                         compdata.kind = 'desktop-app'
                     else:
-                        compdata.kind = root.attrib['type']
+                        compdata.kind = key
 
             elif subs.tag == "name":
                 compdata.name[locale] = subs.text
@@ -956,7 +956,7 @@ class MetadataExtractor:
             return [compdata]
 
         component_dict = dict()
-        # Reading xml files and associated .desktop
+        # First process all XML files
         for meta_file in self._mfiles:
             if meta_file.endswith(".xml"):
                 xml_content = None
@@ -976,25 +976,32 @@ class MetadataExtractor:
                     else:
                         # if there is no ID at all, we dump this component, since we cannot do anything with it at all
                         compdata.add_ignore_reason("Could not determine an id for this component.")
-            else:
+
+        # then extend the XML information with data from other files, e.g. .desktop or .pc files
+        for meta_file in self._mfiles:
+            if meta_file.endswith(".desktop"):
                 # We have a .desktop file
                 dcontent = None
-                try:
-                    dcontent = str(self._deb.data.extractdata(meta_file))
-                except Exception as e:
-                    print("Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e)))
-                    continue
-                if not dcontent:
-                    continue
                 cpt_id = os.path.basename(meta_file)
                 # in case we have a component with that ID already, extend it using the .desktop file data
                 compdata = component_dict.get(cpt_id)
                 if not compdata:
                     compdata = ComponentData(suitename, self._component, self._binid, self._pkgname)
                     compdata.cid = cpt_id
-                self._read_desktop(dcontent, compdata)
-                if not compdata.has_ignore_reason():
                     component_dict[cpt_id] = compdata
+                elif compdata.has_ignore_reason():
+                    # don't add .desktop file information if we already decided to ignore this
+                    continue
+
+                try:
+                    dcontent = str(self._deb.data.extractdata(meta_file))
+                except Exception as e:
+                    compdata.add_ignore_reason("Could not extract file '%s' from package '%s'. Error: %s" % (cpt_id, os.path.basename(self._filename), str(e)))
+                    continue
+                if not dcontent:
+                    compdata.add_ignore_reason("File '%s' from package '%s' appeared empty." % (cpt_id, os.path.basename(self._filename)))
+                    continue
+                self._read_desktop(dcontent, compdata)
 
         for cpt in component_dict.values():
             self._fetch_icon(cpt, filelist)
