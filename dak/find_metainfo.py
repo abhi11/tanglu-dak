@@ -119,46 +119,65 @@ class IconFinder():
         self._icon = icon
         self._binid = binid
 
-    def query_icon(self, size=None):
+    def query_icon(self, size):
         '''
         function to query icon files from similar packages.
         Returns path of the icon
         '''
+
         if size:
             params = {
                 'package': '%' + self._package + '%',
-                'icon1': 'usr/share/%icons/%' + size + '%' + self._icon + '%',
-                'icon2': 'usr/share/%pixmaps/%' + size + '%' + self._icon + '%',
+                'icon': 'usr/share/icons/hicolor/' + size + '/%' + self._icon + '%',
                 'id': self._binid
             }
         else:
             params = {
                 'package': '%' + self._package + '%',
-                'icon1': 'usr/share/%icons/%' + self._icon + '%',
-                'icon2': 'usr/share/%pixmaps/%' + self._icon + '%',
+                'icon': 'usr/share/pixmaps/' + self._icon + '%',
                 'id': self._binid
             }
 
         sql = """ select bc.file, f.filename
         from binaries b, bin_contents bc, files f
         where b.package like :package and b.file = f.id
-        and (bc.file like :icon1 or bc.file like :icon2) and
+        and (bc.file like :icon) and
         (bc.file not like '%.xpm' and bc.file not like '%.tiff')
         and b.id <> :id and b.id = bc.binary_id"""
 
         result = self._session.execute(sql, params)
         rows = result.fetchall()
 
+        if (size) and (not rows):
+            for pkg in ['oxygen-icon-theme', 'adwaita-icon-theme']:
+                if pkg == 'oxygen-icon-theme':
+                    icon_basepath = 'usr/share/icons/oxygen/'
+                else:
+                    icon_basepath = '/usr/share/icons/Adwaita/'
+                # See if an icon-theme contains the icon.
+                # Especially KDE software is packaged that way
+                # FIXME: Make the hardcoded package-names a config option
+                params = {
+                    'package': pkg,
+                    'icon': icon_basepath + size + '/%' + self._icon + '%',
+                    'id': self._binid
+                }
+                result = self._session.execute(sql, params)
+                rows = result.fetchall()
+                if rows:
+                    break
+
         for r in rows:
             path = str(r[0])
             filename = str(r[1])
-            if path.endswith(self._icon+'.png')\
-               or path.endswith(self._icon+'.svg')\
-               or path.endswith(self._icon+'.ico')\
-               or path.endswith(self._icon+'.xcf')\
-               or path.endswith(self._icon+'.gif')\
-               or path.endswith(self._icon+'.svgz'):
-                return [path, filename]
+            if path.endswith(self._icon) \
+                or path.endswith(self._icon+'.png') \
+                or path.endswith(self._icon+'.svg') \
+                or path.endswith(self._icon+'.ico') \
+                or path.endswith(self._icon+'.xcf') \
+                or path.endswith(self._icon+'.gif') \
+                or path.endswith(self._icon+'.svgz'):
+                    return [path, filename]
 
         return False
 
@@ -175,14 +194,17 @@ class IconFinder():
                 if (size == '128x128'):
                     size_map_flist[size] = flist
                 else:
+                    # 48x48 is considered acceptable, we cheat and store it
+                    # as 64x64 icon
                     size_map_flist['64x64'] = flist
 
-        #we cheat here, consider a normal size as '64x64'
+        # some software doesn't store icons in sized XDG directories.
+        # catch these here, and assume that the size is 64x64
         if '64x64' not in size_map_flist.keys():
-            flist = self.query_icon()
+            flist = self.query_icon(None)
             if (flist):
                 size_map_flist = {'64x64':flist}
-        print(size_map_flist)
+
         return size_map_flist
 
     def close(self):

@@ -37,6 +37,7 @@ import shutil
 import datetime
 import os
 import os.path
+import fnmatch
 import lxml.etree as et
 from apt_inst import DebFile
 from PIL import Image
@@ -593,9 +594,24 @@ class MetadataExtractor:
                 cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (cpt.icon))
                 return False
 
-            if icon[1:] in filelist:
-                return self._store_icon(cpt, icon[1:], self._filename, '64x64')
+            success = False
+            if icon.startswith("/"):
+                if icon[1:] in filelist:
+                    return self._store_icon(cpt, icon[1:], self._filename, '64x64')
             else:
+                sizes = ['128x128', '64x64', '48x48']
+                ret = False
+                for size in sizes:
+                    icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon)
+                    filtered = fnmatch.filter(filelist, icon_path)
+                    if filtered:
+                        if (size == '128x128'):
+                            success = self._store_icon(cpt, icon[1:], filtered[0], '128x128') or success
+                        else:
+                            # 48x48 is considered acceptable, we cheat and store it
+                            # as 64x64 icon
+                            success = self._store_icon(cpt, icon[1:], filtered[0], '64x64') or success
+            if not success:
                 ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
                 for path in filelist:
                     if path.endswith(ext_allowed):
@@ -604,14 +620,14 @@ class MetadataExtractor:
 
                 # the IconFinder runs it's own, new session, since we run multiprocess here
                 ficon = IconFinder(self._pkgname, icon, self._binid)
-                size_flist_dict = ficon.get_icon()
+                icon_dict = ficon.get_icon()
                 ficon.close()
                 success = False
-                if size_flist:
-                    for size in size_flist.iterkeys():
+                if icon_dict:
+                    for size in icon_dict.iterkeys():
                         filepath = (Config()["Dir::Pool"] +
-                                    cpt._component + '/' + size_flist[size][1])
-                        success = self._store_icon(cpt, size_flist[size][0], filepath, size) or success
+                                    cpt._component + '/' + icon_dict[size][1])
+                        success = self._store_icon(cpt, icon_dict[size][0], filepath, size) or success
                     return success
 
                 cpt.add_ignore_reason("Icon '%s' was not found in the archive." % (cpt.icon))
@@ -663,7 +679,7 @@ class MetadataExtractor:
                     else:
                         compdata.kind = 'desktop-app'
 
-                    if key.startswith('Name') and value:
+                    if key.startswith('Name'):
                         if key == 'Name':
                             compdata.name['C'] = value
                         else:
@@ -676,7 +692,7 @@ class MetadataExtractor:
                         compdata.categories = value
                         continue
 
-                    if key.startswith('Comment') and value:
+                    if key.startswith('Comment'):
                         if key == 'Comment':
                             compdata.summary['C'] = value
                         else:
