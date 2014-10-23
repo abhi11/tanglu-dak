@@ -619,7 +619,7 @@ class MetadataExtractor:
                             return self._store_icon(cpt, path, self._filename, '64x64')
 
                 # the IconFinder runs it's own, new session, since we run multiprocess here
-                ficon = IconFinder(self._pkgname, icon, self._binid)
+                ficon = IconFinder(self._pkgname, icon, self._binid, self._suite_name, self._component)
                 icon_dict = ficon.get_icon()
                 ficon.close()
                 success = False

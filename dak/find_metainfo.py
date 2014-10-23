@@ -113,11 +113,13 @@ class IconFinder():
     To be used when icon is not found through regular method.This class
     searches icons of similar packages. Ignores the package with binid.
     '''
-    def __init__(self, package, icon, binid):
+    def __init__(self, package, icon, binid, suitename, component):
         self._session = DBConn().session()
         self._package = package
         self._icon = icon
         self._binid = binid
+        self._suite_name = suitename
+        self._component = component
 
     def query_icon(self, size):
         '''
@@ -127,23 +129,32 @@ class IconFinder():
 
         if size:
             params = {
-                'package': '%' + self._package + '%',
+                'package': self._package + '%',
                 'icon': 'usr/share/icons/hicolor/' + size + '/%' + self._icon + '%',
-                'id': self._binid
+                'id': self._binid,
+                'suitename': self._suite_name,
+                'component': self._component,
             }
         else:
             params = {
-                'package': '%' + self._package + '%',
+                'package': self._package + '%',
                 'icon': 'usr/share/pixmaps/' + self._icon + '%',
-                'id': self._binid
+                'id': self._binid,
+                'suitename': self._suite_name,
+                'component': self._component
             }
 
         sql = """ select bc.file, f.filename
-        from binaries b, bin_contents bc, files f
+        from
+        binaries b, bin_contents bc, files f,
+        suite s, override o, component c
         where b.package like :package and b.file = f.id
         and (bc.file like :icon) and
         (bc.file not like '%.xpm' and bc.file not like '%.tiff')
-        and b.id <> :id and b.id = bc.binary_id"""
+        and b.id <> :id and b.id = bc.binary_id
+        and  c.name = :component and c.id = o.component
+        and o.package = b.package and s.suite_name = :suitename
+        and s.id = o.suite"""
 
         result = self._session.execute(sql, params)
         rows = result.fetchall()
@@ -160,7 +171,9 @@ class IconFinder():
                 params = {
                     'package': pkg,
                     'icon': icon_basepath + size + '/%' + self._icon + '%',
-                    'id': self._binid
+                    'id': self._binid,
+                    'suitename': self._suite_name,
+                    'component': self._component
                 }
                 result = self._session.execute(sql, params)
                 rows = result.fetchall()
@@ -224,5 +237,5 @@ if __name__ == "__main__":
     #clear_cached_dep11_data()
     '''
     #test
-    f = IconFinder("amarok","amarok",140743)
+    f = IconFinder("amarok","amarok",140743,'aequorea','main')
     f.get_icon()
