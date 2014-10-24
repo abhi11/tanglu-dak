@@ -606,11 +606,11 @@ class MetadataExtractor:
                     filtered = fnmatch.filter(filelist, icon_path)
                     if filtered:
                         if (size == '128x128'):
-                            success = self._store_icon(cpt, icon[1:], filtered[0], '128x128') or success
+                            success = self._store_icon(cpt, filtered[0], self._filename, '128x128') or success
                         else:
                             # 48x48 is considered acceptable, we cheat and store it
                             # as 64x64 icon
-                            success = self._store_icon(cpt, icon[1:], filtered[0], '64x64') or success
+                            success = self._store_icon(cpt, filtered[0], self._filename, '64x64') or success
             if not success:
                 ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
                 for path in filelist:
