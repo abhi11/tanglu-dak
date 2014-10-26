@@ -450,7 +450,10 @@ class MetadataExtractor:
         component_basepath = "%s/%s/%s-%s" % (self._suite_name, self._component,
                                 self._pkgname, str(self._binid))
         self._export_path = "%s/%s" % (Config()["Dir::MetaInfo"], component_basepath)
-        self._public_url = "%s/%s" % (Config()["Url::DEP11"], component_basepath)
+        self._public_url = "%s/%s" % (Config()["DEP11::Url"], component_basepath)
+
+        cnf = Config()
+        self._icon_sizes = cnf.value_list('DEP11::IconSizes')
 
     def _deb_filelist(self):
         '''
@@ -598,7 +601,6 @@ class MetadataExtractor:
             if icon[1:] in filelist:
                 return self._store_icon(cpt, icon[1:], self._filename, '64x64')
         else:
-            sizes = ['128x128', '64x64', '48x48']
             ret = False
             # check if there is some kind of file-extension.
             # if there is none, the referenced icon is likely a stock icon, and we assume .png
@@ -606,16 +608,17 @@ class MetadataExtractor:
                 icon_name = icon
             else:
                 icon_name = icon + ".png"
-            for size in sizes:
+            for size in self._icon_sizes:
                 icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon_name)
                 filtered = fnmatch.filter(filelist, icon_path)
                 if filtered:
-                    if (size == '128x128'):
-                        success = self._store_icon(cpt, filtered[0], self._filename, '128x128') or success
-                    else:
+                    if (size == '48x48'):
                         # 48x48 is considered acceptable, we cheat and store it
-                        # as 64x64 icon
+                        # as 64x64 icon for backwards compatibility
                         success = self._store_icon(cpt, filtered[0], self._filename, '64x64') or success
+                    else:
+                        success = self._store_icon(cpt, filtered[0], self._filename, size) or success
+
         if not success:
             # handle stuff in the pixmaps directory
             for path in filelist:
@@ -1252,8 +1255,11 @@ def main():
     if not cnf.has_key("Dir::MetaInfo"):
         print("You need to specify a metadata export directory (Dir::MetaInfo)")
         sys.exit(1)
-    if not cnf.has_key("Url::DEP11"):
-        print("You need to specify a metadata public web URL (Url::DEP11)")
+    if not cnf.has_key("DEP11::Url"):
+        print("You need to specify a metadata public web URL (DEP11::Url)")
+        sys.exit(1)
+    if not cnf.has_key("DEP11::IconSizes"):
+        print("You need to specify a list of allowed icon-sizes (DEP11::IconSizes)")
         sys.exit(1)
 
     logger = daklog.Logger('generate-metadata')

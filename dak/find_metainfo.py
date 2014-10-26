@@ -121,6 +121,10 @@ class IconFinder():
         self._suite_name = suitename
         self._component = component
 
+        cnf = Config()
+        self._icon_theme_packages = cnf.value_list('DEP11::IconThemePackages')
+        self._icon_sizes = cnf.value_list('DEP11::IconSizes')
+
     def query_icon(self, size):
         '''
         function to query icon files from similar packages.
@@ -161,7 +165,7 @@ class IconFinder():
         rows = result.fetchall()
 
         if (size) and (not rows):
-            for pkg in ['oxygen-icon-theme', 'gnome-icon-theme']:
+            for pkg in self._icon_theme_packages:
                 # See if an icon-theme contains the icon.
                 # Especially KDE software is packaged that way
                 # FIXME: Make the hardcoded package-names a config option
@@ -195,18 +199,17 @@ class IconFinder():
         '''
         Returns the best possible icon available
         '''
-        sizes = ['128x128', '64x64', '48x48']
         size_map_flist = dict()
 
-        for size in sizes:
+        for size in self._icon_sizes:
             flist = self.query_icon(size)
             if (flist):
-                if (size == '128x128'):
-                    size_map_flist[size] = flist
-                else:
+                if (size == '48x48'):
                     # 48x48 is considered acceptable, we cheat and store it
                     # as 64x64 icon
                     size_map_flist['64x64'] = flist
+                else:
+                    size_map_flist[size] = flist
 
         # some software doesn't store icons in sized XDG directories.
         # catch these here, and assume that the size is 64x64
