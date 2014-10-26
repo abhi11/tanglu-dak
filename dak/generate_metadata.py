@@ -547,14 +547,19 @@ class MetadataExtractor:
         cpt.screenshots = shots
         return success
 
+
+    def _icon_allowed(self, icon):
+        ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
+        if not icon.endswith(ext_allowed):
+            return False
+        return True
+
     def _store_icon(self, cpt, icon, filepath, size):
         '''
         Extracts the icon from the deb package and stores it in the cache.
         '''
-        ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
-        if not icon.endswith(ext_allowed):
+        if not self._icon_allowed(icon):
             cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(icon)))
-            return False
 
         path = "%s/icons/%s/" % (self._export_path, size)
         icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
@@ -620,12 +625,22 @@ class MetadataExtractor:
                         success = self._store_icon(cpt, filtered[0], self._filename, size) or success
 
         if not success:
+            last_pixmap = None
             # handle stuff in the pixmaps directory
             for path in filelist:
                 if path.startswith("usr/share/pixmaps"):
                     icon_basename = os.path.basename(path)
                     if ((icon_basename == icon) or (os.path.splitext(icon_basename)[0] == icon)):
-                        return self._store_icon(cpt, path, self._filename, '64x64')
+                        # the pixmap dir can contain icons in multiple formats, and store_icon() fails in case
+                        # the icon format is not allowed. We therefore only exit here, if the icon has a valid format
+                        if self._icon_allowed(path):
+                            return self._store_icon(cpt, path, self._filename, '64x64')
+                        last_pixmap = path
+            if last_pixmap:
+                # we don't do a global icon search anymore, since we've found an (unsuitable) icon
+                # already
+                cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(last_pixmap)))
+                return False
 
             # the IconFinder uses it's own, new session, since we run multiprocess here
             ficon = IconFinder(self._pkgname, icon, self._binid, self._suite_name, self._component)
