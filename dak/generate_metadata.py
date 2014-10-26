@@ -548,6 +548,11 @@ class MetadataExtractor:
         '''
         Extracts the icon from the deb package and stores it in the cache.
         '''
+        ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
+        if not icon.endswith(ext_allowed):
+            cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(icon)))
+            return False
+
         path = "%s/icons/%s/" % (self._export_path, size)
         icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
         cpt.icon = icon_name
@@ -581,59 +586,59 @@ class MetadataExtractor:
         Searches for icon if absolute path to an icon
         is not given. Component with invalid icons are ignored
         '''
-        if cpt.icon:
-            icon = cpt.icon
-            cpt.icon = os.path.basename (icon)
+        if not cpt.icon:
+            # keep metadata if Icon self itself is not present
+            return True
 
+        icon = cpt.icon
+        cpt.icon = os.path.basename (icon)
+
+        success = False
+        if icon.startswith("/"):
+            if icon[1:] in filelist:
+                return self._store_icon(cpt, icon[1:], self._filename, '64x64')
+        else:
+            sizes = ['128x128', '64x64', '48x48']
+            ret = False
             # check if there is some kind of file-extension.
             # if there is none, the referenced icon is likely a stock icon, and we assume .png
-            if not "." in cpt.icon:
-                icon = icon + ".png"
-
-            if not icon.endswith(('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')):
-                cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (cpt.icon))
-                return False
-
-            success = False
-            if icon.startswith("/"):
-                if icon[1:] in filelist:
-                    return self._store_icon(cpt, icon[1:], self._filename, '64x64')
+            if "." in cpt.icon:
+                icon_name = icon
             else:
-                sizes = ['128x128', '64x64', '48x48']
-                ret = False
-                for size in sizes:
-                    icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon)
-                    filtered = fnmatch.filter(filelist, icon_path)
-                    if filtered:
-                        if (size == '128x128'):
-                            success = self._store_icon(cpt, filtered[0], self._filename, '128x128') or success
-                        else:
-                            # 48x48 is considered acceptable, we cheat and store it
-                            # as 64x64 icon
-                            success = self._store_icon(cpt, filtered[0], self._filename, '64x64') or success
-            if not success:
-                ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
-                for path in filelist:
-                    if path.endswith(ext_allowed):
-                        if 'pixmaps' in path or 'icons' in path:
-                            return self._store_icon(cpt, path, self._filename, '64x64')
+                icon_name = icon + ".png"
+            for size in sizes:
+                icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon_name)
+                filtered = fnmatch.filter(filelist, icon_path)
+                if filtered:
+                    if (size == '128x128'):
+                        success = self._store_icon(cpt, filtered[0], self._filename, '128x128') or success
+                    else:
+                        # 48x48 is considered acceptable, we cheat and store it
+                        # as 64x64 icon
+                        success = self._store_icon(cpt, filtered[0], self._filename, '64x64') or success
+        if not success:
+            # handle stuff in the pixmaps directory
+            for path in filelist:
+                if path.startswith("usr/share/pixmaps"):
+                    icon_basename = os.path.basename(path)
+                    if ((icon_basename == icon) or (os.path.splitext(icon_basename)[0] == icon)):
+                        return self._store_icon(cpt, path, self._filename, '64x64')
 
-                # the IconFinder runs it's own, new session, since we run multiprocess here
-                ficon = IconFinder(self._pkgname, icon, self._binid, self._suite_name, self._component)
-                icon_dict = ficon.get_icon()
-                ficon.close()
-                success = False
-                if icon_dict:
-                    for size in icon_dict.iterkeys():
-                        filepath = (Config()["Dir::Pool"] +
-                                    cpt._component + '/' + icon_dict[size][1])
-                        success = self._store_icon(cpt, icon_dict[size][0], filepath, size) or success
-                    return success
+            # the IconFinder uses it's own, new session, since we run multiprocess here
+            ficon = IconFinder(self._pkgname, icon, self._binid, self._suite_name, self._component)
+            icon_dict = ficon.get_icon()
+            ficon.close()
+            success = False
+            if icon_dict:
+                for size in icon_dict.iterkeys():
+                    filepath = (Config()["Dir::Pool"] +
+                                cpt._component + '/' + icon_dict[size][1])
+                    success = self._store_icon(cpt, icon_dict[size][0], filepath, size) or success
+                return success
 
-                cpt.add_ignore_reason("Icon '%s' was not found in the archive." % (cpt.icon))
-                return False
+            cpt.add_ignore_reason("Icon '%s' was not found in the archive or is not available in a suitable size (at least 48x48)." % (cpt.icon))
+            return False
 
-        # keep metadata if Icon self itself is not present
         return True
 
     def _strip_comment(self, line=None):

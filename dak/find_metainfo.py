@@ -126,6 +126,7 @@ class IconFinder():
         function to query icon files from similar packages.
         Returns path of the icon
         '''
+        ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
 
         if size:
             params = {
@@ -160,17 +161,13 @@ class IconFinder():
         rows = result.fetchall()
 
         if (size) and (not rows):
-            for pkg in ['oxygen-icon-theme', 'adwaita-icon-theme']:
-                if pkg == 'oxygen-icon-theme':
-                    icon_basepath = 'usr/share/icons/oxygen/'
-                else:
-                    icon_basepath = '/usr/share/icons/Adwaita/'
+            for pkg in ['oxygen-icon-theme', 'gnome-icon-theme']:
                 # See if an icon-theme contains the icon.
                 # Especially KDE software is packaged that way
                 # FIXME: Make the hardcoded package-names a config option
                 params = {
                     'package': pkg,
-                    'icon': icon_basepath + size + '/%' + self._icon + '%',
+                    'icon': 'usr/share/icons/%/' + size + '/%' + self._icon + '%',
                     'id': self._binid,
                     'suitename': self._suite_name,
                     'component': self._component
