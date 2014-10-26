@@ -550,9 +550,9 @@ class MetadataExtractor:
 
     def _icon_allowed(self, icon):
         ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
-        if not icon.endswith(ext_allowed):
-            return False
-        return True
+        if icon.endswith(ext_allowed):
+            return True
+        return False
 
     def _store_icon(self, cpt, icon, filepath, size):
         '''
@@ -560,6 +560,7 @@ class MetadataExtractor:
         '''
         if not self._icon_allowed(icon):
             cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(icon)))
+            return False
 
         path = "%s/icons/%s/" % (self._export_path, size)
         icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
