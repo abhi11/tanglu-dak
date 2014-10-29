@@ -675,6 +675,17 @@ class MetadataExtractor:
                     line = line[0:line.find("#")]
                     return line
         return line
+        
+    def _key_value(self, line=None):
+        '''
+        checks whether a line is a keuy=val pair.
+        '''
+        line = line.strip()
+        if line:
+            if "=" in line:
+                return True
+        return False
+
 
     def _read_desktop(self, dcontent, compdata):
         '''
@@ -685,6 +696,19 @@ class MetadataExtractor:
             line = self._strip_comment(line)
             if not line:
                 continue
+
+            # if parse is False or line not a key=val pair
+            if (not parse) or (not self._key_value(line)):
+                if line == "[Desktop Entry]":
+                    parse = True
+                else:
+                    parse = False
+                continue
+                
+            # if parse is False continue
+            if not parse:
+                continue
+
             # spliting into key-value pairs
             tray = line.split("=", 1)
             if len(tray) != 2:
