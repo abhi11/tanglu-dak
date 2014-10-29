@@ -39,6 +39,7 @@ import os
 import os.path
 import fnmatch
 import lxml.etree as et
+from xml.sax.saxutils import escape
 from apt_inst import DebFile
 from PIL import Image
 from subprocess import CalledProcessError
@@ -787,10 +788,13 @@ class MetadataExtractor:
         Handles the description tag
         '''
 
-        def clear_linebreaks(s):
+        def prepare_desc_string(s):
+            '''
+            Clears linebreaks and XML-escapes the resulting string
+            '''
             s = s.strip()
             s = " ".join(s.split())
-            return s
+            return escape(s)
 
         ddict = dict()
 
@@ -805,7 +809,7 @@ class MetadataExtractor:
             if usubs.tag == 'p':
                 if not locale in ddict:
                     ddict[locale] = ""
-                ddict[locale] += "<p>%s</p>" % enc_dec(clear_linebreaks(usubs.text))
+                ddict[locale] += "<p>%s</p>" % enc_dec(prepare_desc_string(usubs.text))
             elif usubs.tag == 'ul' or usubs.tag == 'ol':
                 tmp_dict = dict()
                 # find the right locale, or fallback to untranslated
@@ -816,7 +820,7 @@ class MetadataExtractor:
                         tmp_dict[locale] = ""
 
                     if u_usubs.tag == 'li':
-                        tmp_dict[locale] += "<li>%s</li>" % enc_dec(clear_linebreaks(u_usubs.text))
+                        tmp_dict[locale] += "<li>%s</li>" % enc_dec(prepare_desc_string(u_usubs.text))
 
                 for locale, value in tmp_dict.items():
                     if not locale in ddict:
