@@ -621,12 +621,7 @@ class MetadataExtractor:
                 icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon_name)
                 filtered = fnmatch.filter(filelist, icon_path)
                 if filtered:
-                    if (size == '48x48'):
-                        # 48x48 is considered acceptable, we cheat and store it
-                        # as 64x64 icon for backwards compatibility
-                        success = self._store_icon(cpt, filtered[0], self._filename, '64x64') or success
-                    else:
-                        success = self._store_icon(cpt, filtered[0], self._filename, size) or success
+                    success = self._store_icon(cpt, filtered[0], self._filename, size) or success
 
         if not success:
             last_pixmap = None
@@ -658,7 +653,7 @@ class MetadataExtractor:
                     success = self._store_icon(cpt, icon_dict[size][0], filepath, size) or success
                 return success
 
-            cpt.add_ignore_reason("Icon '%s' was not found in the archive or is not available in a suitable size (at least 48x48)." % (cpt.icon))
+            cpt.add_ignore_reason("Icon '%s' was not found in the archive or is not available in a suitable size (at least 64x64)." % (cpt.icon))
             return False
 
         return True

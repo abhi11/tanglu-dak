@@ -204,12 +204,7 @@ class IconFinder():
         for size in self._icon_sizes:
             flist = self.query_icon(size)
             if (flist):
-                if (size == '48x48'):
-                    # 48x48 is considered acceptable, we cheat and store it
-                    # as 64x64 icon
-                    size_map_flist['64x64'] = flist
-                else:
-                    size_map_flist[size] = flist
+                size_map_flist[size] = flist
 
         # some software doesn't store icons in sized XDG directories.
         # catch these here, and assume that the size is 64x64
