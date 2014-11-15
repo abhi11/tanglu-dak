@@ -564,16 +564,7 @@ class MetadataExtractor:
             return False
 
         path = "%s/icons/%s/" % (self._export_path, size)
-        partial_name = os.path.basename(icon)
-
-        # rendering svg(z) to png
-        if partial_name.endswith(".svg"):
-            partial_name = partial_name.replace(".svg", ".png")
-
-        if partial_name.endswith(".svgz"):
-            partial_name = partial_name.replace(".svgz", ".png")
-            
-        icon_name = "%s_%s" % (self._pkgname, partial_name)
+        icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
         cpt.icon = icon_name
 
         icon_store_location = "{0}/{1}".format(path, icon_name)
