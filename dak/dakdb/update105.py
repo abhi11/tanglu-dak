@@ -39,6 +39,7 @@ statements = [
     CREATE TABLE bin_dep11(id SERIAL PRIMARY KEY,
     binary_id integer not null,
     metadata text not null,
+    hints text,
     ignore boolean not null
     );
     """,

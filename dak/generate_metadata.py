@@ -70,10 +70,10 @@ class DEP11Metadata():
     def __init__(self, session):
         self._session = session
 
-    def insertdata(self, binid, yamldoc,flag):
-        d = {"bin_id": binid, "yaml_data": yamldoc, "ignore":flag}
-        sql = """insert into bin_dep11(binary_id,metadata,ignore)
-        VALUES (:bin_id, :yaml_data, :ignore)"""
+    def insertdata(self, binid, yamldoc, hints, ignore):
+        d = {"bin_id": binid, "yaml_data": yamldoc, "hints": hints, "ignore": ignore}
+        sql = """insert into bin_dep11(binary_id,metadata,hints,ignore)
+        VALUES (:bin_id, :yaml_data, :hints, :ignore)"""
         self._session.execute(sql, d)
 
     def removedata(self, suitename):
@@ -147,7 +147,8 @@ class ComponentData:
         self._binid = binid
 
         # properties
-        self._ignore_reasons = list()
+        self._hints = list()
+        self._ignore = False
 
         self._id = None
         self._type = None
@@ -168,12 +169,29 @@ class ComponentData:
         self._compulsory_for_desktops = list()
 
     def add_ignore_reason(self, msg):
-        self._ignore_reasons.append(msg)
+        self._hints.append(msg)
+        self._ignore = True
 
     def has_ignore_reason(self):
-        if not self._ignore_reasons:
-            return False
-        return True
+        return self._ignore
+
+    def add_hint(self, msg):
+        self._hints.append(msg)
+
+    def get_hints_dict(self):
+        if not self._hints:
+            return None
+        hdict = dict()
+        # add some helpful data
+        if self.cid:
+            hdict['ID'] = self.cid
+        if self.kind:
+            hdict['Type'] = self.kind
+        if self.has_ignore_reason():
+            hdict['Ignored'] = True
+        hdict['Hints'] = self._hints
+
+        return hdict
 
     @property
     def cid(self):
@@ -371,15 +389,15 @@ class ComponentData:
         # validate the basics (if we don't ignore this already)
         if not self.has_ignore_reason():
             if not self.cid:
-                self._ignore_reasons.append("Component has no valid ID.")
+                self._hints.append("Component has no valid ID.")
             if not self.kind:
-                self._ignore_reasons.append("Component has no type defined.")
+                self._hints.append("Component has no type defined.")
             if not self.name:
-                self._ignore_reasons.append("Component has no name specified.")
+                self._hints.append("Component has no name specified.")
             if not self._pkg:
-                self._ignore_reasons.append("Component has no package defined.")
+                self._hints.append("Component has no package defined.")
             if not self.summary:
-                self._ignore_reasons.append("Component does not contain a short summary.")
+                self._hints.append("Component does not contain a short summary.")
 
         d = dict()
         d['Packages'] = [self._pkg]
@@ -392,7 +410,6 @@ class ComponentData:
         # of exporting the software component
         if self.has_ignore_reason():
             d['Ignored'] = True
-            d['Reasons'] = self._ignore_reasons
             return d
 
         if self.name:
@@ -1050,8 +1067,15 @@ class MetadataPool:
                             default_flow_style=False, explicit_start=True,
                             explicit_end=False, width=100, indent=2,
                             allow_unicode=True)
+                hints_str = ""
+                hints = cdata.get_hints_dict()
+                if hints:
+                    hints_str = yaml.dump(hints, Dumper=DEP11YAMLDumper,
+                                default_flow_style=False, explicit_start=True,
+                                explicit_end=False, width=100, indent=2,
+                                allow_unicode=True)
                 # store metadata in database
-                dep11.insertdata(cdata._binid, metadata, cdata.has_ignore_reason())
+                dep11.insertdata(cdata._binid, metadata, hints_str, cdata.has_ignore_reason())
         # commit all changes
         session.commit()
 
