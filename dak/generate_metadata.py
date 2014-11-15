@@ -37,12 +37,14 @@ import shutil
 import datetime
 import os
 import os.path
+import cStringIO
 import fnmatch
 import lxml.etree as et
 from xml.sax.saxutils import escape
 from apt_inst import DebFile
 from PIL import Image
 from subprocess import CalledProcessError
+from ConfigParser import RawConfigParser
 from find_metainfo import *
 
 from daklib import daklog
@@ -661,97 +663,54 @@ class MetadataExtractor:
 
         return True
 
-    def _strip_comment(self, line=None):
-        '''
-        checks whether a line is a comment on .desktop file.
-        '''
-        line = line.strip()
-        if line:
-            if line[0] == "#":
-                return None
-            else:
-                # when there's a comment inline
-                if "#" in line:
-                    line = line[0:line.find("#")]
-                    return line
-        return line
-        
-    def _key_value(self, line=None):
-        '''
-        checks whether a line is a keuy=val pair.
-        '''
-        line = line.strip()
-        if line:
-            if "=" in line:
-                return True
-        return False
-
-
     def _read_desktop(self, dcontent, compdata):
         '''
         Parses a .desktop file and sets ComponentData properties
         '''
-        lines = dcontent.splitlines()
-        for line in lines:
-            line = self._strip_comment(line)
-            if not line:
-                continue
+        df = RawConfigParser()
+        df.readfp(cStringIO.StringIO(dcontent))
 
-            # if parse is False or line not a key=val pair
-            if (not parse) or (not self._key_value(line)):
-                if line == "[Desktop Entry]":
-                    parse = True
-                else:
-                    parse = False
-                continue
-                
-            # if parse is False continue
-            if not parse:
-                continue
-
-            # spliting into key-value pairs
-            tray = line.split("=", 1)
-            if len(tray) != 2:
-                continue
-
-            key = enc_dec(tray[0]).strip()
-            value = enc_dec(tray[1].strip())
-
-            if not value:
-                continue
-
-            # Ignore the file if NoDisplay is true
-            if key == 'NoDisplay' and value == 'True':
-                # we ignore this .desktop file, shouldn't be displayed
-                break
-
-            if key == 'Type' and value != 'Application':
+        items = None
+        try:
+            items = df.items("Desktop Entry")
+            if df.get("Desktop Entry", "Type") != "Application":
                 # ignore this file, isn't an application
-                break
-            else:
-                compdata.kind = 'desktop-app'
+                return
+            try:
+                if df.get("Desktop Entry", "NoDisplay") == "True":
+                    # we ignore this .desktop file, shouldn't be displayed
+                    return
+            except:
+                # we don't care if the NoDisplay variable doesn't exist
+                # if it isn't there, the file should be processed
+                pass
+        except Exception as e:
+            # this .desktop file is not interesting
+            return
 
-            if key.startswith('Name'):
-                if key == 'Name':
+        # if we reached this step, we are dealing with a GUI desktop app
+        compdata.kind = 'desktop-app'
+
+        for item in items:
+            if len(item) != 2:
+                continue
+            key = item[0]
+            value = enc_dec(item[1])
+            if key.startswith("name"):
+                if key == 'name':
                     compdata.name['C'] = value
                 else:
                     compdata.name[key[5:-1]] = value
-                continue
-
-            elif key == 'Categories':
+            elif key == 'categories':
                 value = value.split(';')
                 value.pop()
                 compdata.categories = value
-                continue
-
-            elif key.startswith('Comment'):
-                if key == 'Comment':
+            elif key.startswith('comment'):
+                if key == 'comment':
                     compdata.summary['C'] = value
                 else:
                     compdata.summary[key[8:-1]] = value
-                continue
-
-            elif key.startswith('Keywords'):
+            elif key.startswith('keywords'):
                 value = re.split(';|,', value)
                 if not value[-1]:
                     value.pop()
@@ -779,9 +738,7 @@ class MetadataExtractor:
                         compdata.keywords = {
                             key[9:-1]: map(enc_dec, value)
                         }
-                continue
-
-            elif key == 'MimeType':
+            elif key == 'mimetype':
                 value = value.split(';')
                 if len(value) > 1:
                     value.pop()
@@ -789,14 +746,7 @@ class MetadataExtractor:
                     compdata.add_provided_item(
                         ProvidedItemType.MIMETYPE, val
                     )
-                continue
-
-            elif 'Architectures' in key:
-                val_list = value.split(',')
-                compdata.archs = val_list
-                continue
-
-            elif key == 'Icon':
+            elif key == 'icon':
                 compdata.icon = value
 
     def _get_tag_locale(self, subs):
