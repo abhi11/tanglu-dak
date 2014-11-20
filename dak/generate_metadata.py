@@ -39,6 +39,7 @@ import os
 import os.path
 import cStringIO
 import fnmatch
+import cairosvg
 import lxml.etree as et
 from xml.sax.saxutils import escape
 from apt_inst import DebFile
@@ -574,6 +575,13 @@ class MetadataExtractor:
             return True
         return False
 
+    def _render_to_png(self, data, store_path):
+        '''
+        Uses cairosvg to render svg data to png data
+        and changes the filename extension to png
+        '''
+        return cairosvg.svg2png(data), store_path,replace(".svg", ".png")
+
     def _store_icon(self, cpt, icon, filepath, size):
         '''
         Extracts the icon from the deb package and stores it in the cache.
@@ -599,6 +607,9 @@ class MetadataExtractor:
             except Exception as e:
                 print("Error while extracting icon '%s': %s" % (filepath, e))
                 return False
+            
+            if icon_name.endswith(".svg"):
+                icon_data, icon_store_location = self._render_to_png(icon_data, icon_store_location)
 
             if icon_data:
                 if not os.path.exists(path):
