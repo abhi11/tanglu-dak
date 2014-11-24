@@ -382,6 +382,7 @@ class ComponentData:
         self.name = self._cleanup(self.name)
         self.summary = self._cleanup(self.summary)
         self.description = self._cleanup(self.description)
+        self.developer_name = self._cleanup(self.developer_name)
         if self.screenshots:
             for shot in self.screenshots:
                 caption = shot.get('caption')
@@ -519,6 +520,7 @@ class MetadataExtractor:
         Fetches screenshots from the given url and
         stores it in png format.
         '''
+
         if not cpt.screenshots:
             # don't ignore metadata if screenshots itself is not present
             return True
@@ -709,18 +711,21 @@ class MetadataExtractor:
             items = df.items("Desktop Entry")
             if df.get("Desktop Entry", "Type") != "Application":
                 # ignore this file, isn't an application
-                return
+                compdata.add_ignore_reason("Not an application.")
+                return False
             try:
                 if df.get("Desktop Entry", "NoDisplay") == "True":
                     # we ignore this .desktop file, shouldn't be displayed
-                    return
+                    compdata.add_ignore_reason("Invisible")
+                    return False
             except:
                 # we don't care if the NoDisplay variable doesn't exist
                 # if it isn't there, the file should be processed
                 pass
         except Exception as e:
             # this .desktop file is not interesting
-            return
+            compdata.add_ignore_reason("Error while reading .desktop data: %s", str(e))
+            return True
 
         # if we reached this step, we are dealing with a GUI desktop app
         compdata.kind = 'desktop-app'
@@ -730,6 +735,8 @@ class MetadataExtractor:
                 continue
             key = item[0]
             value = enc_dec(item[1])
+            if not value:
+                continue
             if key.startswith("name"):
                 if key == 'name':
                     compdata.name['C'] = value
@@ -782,6 +789,7 @@ class MetadataExtractor:
                     )
             elif key == 'icon':
                 compdata.icon = value
+        return True
 
     def _get_tag_locale(self, subs):
         attr_dic = subs.attrib
@@ -1037,7 +1045,11 @@ class MetadataExtractor:
                 if not dcontent:
                     compdata.add_ignore_reason("File '%s' from package '%s' appeared empty." % (cpt_id, os.path.basename(self._filename)))
                     continue
-                self._read_desktop(dcontent, compdata)
+                ret = self._read_desktop(dcontent, compdata)
+                if not ret and compdata.has_ignore_reason():
+                    # this means that reading the .desktop file failed and we should
+                    # silently ignore this issue (since the file was marked to be invisible on purpose)
+                    del component_dict[cpt_id]
 
         for cpt in component_dict.values():
             self._fetch_icon(cpt, filelist)
