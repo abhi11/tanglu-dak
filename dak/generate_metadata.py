@@ -39,7 +39,8 @@ import os
 import os.path
 import cStringIO
 import fnmatch
-import cairosvg
+import cairo
+import rsvg
 import lxml.etree as et
 from xml.sax.saxutils import escape
 from apt_inst import DebFile
@@ -542,7 +543,7 @@ class MetadataExtractor:
                 f.write(image)
                 f.close()
             except Exception as e:
-                print("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.cid, str(e)))
+                cpt.add_hint("Error while downloading screenshot from '%s' for component '%s': %s" % (origin_url, cpt.cid, str(e)))
                 success = False
                 continue
 
@@ -554,7 +555,7 @@ class MetadataExtractor:
                 shot['source-image']['url'] = os.path.join(base_url, "source", "screenshot-%s.png" % (str(cnt)))
                 img.close()
             except Exception as e:
-                print("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.cid, str(e)))
+                cpt.add_hint("Error while reading screenshot data for 'screenshot-%s.png' of component '%s': %s" % (str(cnt), cpt.cid, str(e)))
                 success = False
                 continue
 
@@ -562,12 +563,10 @@ class MetadataExtractor:
             # dicts with {height,width,url}
             shot['thumbnails'] = self._scale_screenshot(imgsrc, path, base_url)
             shots.append(shot)
-            print("New screenshot cached from %s" % (origin_url))
             cnt = cnt + 1
 
         cpt.screenshots = shots
         return success
-
 
     def _icon_allowed(self, icon):
         ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
@@ -575,12 +574,21 @@ class MetadataExtractor:
             return True
         return False
 
-    def _render_to_png(self, data, store_path):
+    def _render_to_png(self, data, store_path, size):
         '''
-        Uses cairosvg to render svg data to png data
-        and changes the filename extension to png
+        Uses cairosvg to render svg data to png data.
         '''
-        return cairosvg.svg2png(data), store_path,replace(".svg", ".png")
+
+        split = size.split('x', 2)
+        width = int(split[0])
+        height = int(split[1])
+
+        img =  cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+        ctx = cairo.Context(img)
+        handler= rsvg.Handle(None, data)
+        handler.render_cairo(ctx)
+
+        img.write_to_png(store_path)
 
     def _store_icon(self, cpt, icon, filepath, size):
         '''
@@ -607,18 +615,21 @@ class MetadataExtractor:
             except Exception as e:
                 print("Error while extracting icon '%s': %s" % (filepath, e))
                 return False
-            
-            if icon_name.endswith(".svg"):
-                icon_data, icon_store_location = self._render_to_png(icon_data, icon_store_location)
 
             if icon_data:
                 if not os.path.exists(path):
                     os.makedirs(os.path.dirname(path))
-                f = open(icon_store_location, "wb")
-                f.write(icon_data)
-                f.close()
-                #! print("Saved icon %s." % (icon_name))
-                return True
+
+                if icon_name.endswith(".svg"):
+                    # render the SVG to a bitmap
+                    icon_store_location = icon_store_location.replace(".svg", ".png")
+                    self._render_to_png(icon_data, icon_store_location, size)
+                    return True
+                else:
+                    f = open(icon_store_location, "wb")
+                    f.write(icon_data)
+                    f.close()
+                    return True
         return False
 
     def _fetch_icon(self, cpt, filelist):
