@@ -130,7 +130,7 @@ class IconFinder():
         function to query icon files from similar packages.
         Returns path of the icon
         '''
-        ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
+        ext_allowed = ('.png', '.svg', '.xcf', '.gif', '.svgz')
 
         if size:
             params = {
@@ -187,7 +187,6 @@ class IconFinder():
             if path.endswith(self._icon) \
                 or path.endswith(self._icon+'.png') \
                 or path.endswith(self._icon+'.svg') \
-                or path.endswith(self._icon+'.ico') \
                 or path.endswith(self._icon+'.xcf') \
                 or path.endswith(self._icon+'.gif') \
                 or path.endswith(self._icon+'.svgz'):
@@ -201,7 +200,11 @@ class IconFinder():
         '''
         size_map_flist = dict()
 
-        for size in self._icon_sizes:
+        all_sizes = self._icon_sizes
+        if not '256x256' in self._icon_sizes:
+            all_sizes.append('256x256')
+
+        for size in all_sizes:
             flist = self.query_icon(size)
             if (flist):
                 size_map_flist[size] = flist

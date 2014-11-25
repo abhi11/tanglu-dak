@@ -659,6 +659,9 @@ class MetadataExtractor:
         icon = cpt.icon
         cpt.icon = os.path.basename (icon)
 
+        # list of large sizes to scal down, in order to find more icons
+        large_sizes = ['256x256']
+
         success = False
         if icon.startswith("/"):
             if icon[1:] in filelist:
@@ -676,6 +679,14 @@ class MetadataExtractor:
                 filtered = fnmatch.filter(filelist, icon_path)
                 if filtered:
                     success = self._store_icon(cpt, filtered[0], self._filename, size) or success
+            if not success:
+                # we cheat and test for larger icons as well, which can be scaled down
+                for size in large_sizes:
+                    icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon_name)
+                    filtered = fnmatch.filter(filelist, icon_path)
+                    if filtered:
+                       for asize in self._icon_sizes:
+                            success = self._store_icon(cpt, filtered[0], self._filename, asize) or success
 
         if not success:
             last_pixmap = None
@@ -701,10 +712,20 @@ class MetadataExtractor:
             ficon.close()
             success = False
             if icon_dict:
-                for size in icon_dict.iterkeys():
+                for size in self._icon_sizes:
+                    if not size in icon_dict:
+                        continue
                     filepath = (Config()["Dir::Pool"] +
                                 cpt._component + '/' + icon_dict[size][1])
                     success = self._store_icon(cpt, icon_dict[size][0], filepath, size) or success
+                if not success:
+                    for size in large_sizes:
+                        if not size in icon_dict:
+                            continue
+                        filepath = (Config()["Dir::Pool"] +
+                                    cpt._component + '/' + icon_dict[size][1])
+                        for asize in self._icon_sizes:
+                            success = self._store_icon(cpt, icon_dict[size][0], filepath, asize) or success
                 return success
 
             cpt.add_ignore_reason("Icon '%s' was not found in the archive or is not available in a suitable size (at least 64x64)." % (cpt.icon))
