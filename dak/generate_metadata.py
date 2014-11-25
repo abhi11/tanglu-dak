@@ -37,11 +37,12 @@ import shutil
 import datetime
 import os
 import os.path
-import cStringIO
 import fnmatch
 import cairo
 import rsvg
 import lxml.etree as et
+import cStringIO as StringIO
+from tempfile import NamedTemporaryFile
 from xml.sax.saxutils import escape
 from apt_inst import DebFile
 from PIL import Image
@@ -571,19 +572,15 @@ class MetadataExtractor:
         return success
 
     def _icon_allowed(self, icon):
-        ext_allowed = ('.png', '.svg', '.ico', '.xcf', '.gif', '.svgz')
+        ext_allowed = ('.png', '.svg', '.xcf', '.gif', '.svgz', '.jpg')
         if icon.endswith(ext_allowed):
             return True
         return False
 
-    def _render_to_png(self, data, store_path, size):
+    def _render_svg_to_png(self, data, store_path, width, height):
         '''
         Uses cairosvg to render svg data to png data.
         '''
-
-        split = size.split('x', 2)
-        width = int(split[0])
-        height = int(split[1])
 
         img =  cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
         ctx = cairo.Context(img)
@@ -592,16 +589,19 @@ class MetadataExtractor:
 
         img.write_to_png(store_path)
 
-    def _store_icon(self, cpt, icon, filepath, size):
+    def _store_icon(self, cpt, icon_path, deb_fname, size):
         '''
         Extracts the icon from the deb package and stores it in the cache.
         '''
-        if not self._icon_allowed(icon):
-            cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(icon)))
+        if not self._icon_allowed(icon_path):
+            cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(icon_path)))
+            return False
+
+        if not os.path.exists(deb_fname):
             return False
 
         path = "%s/icons/%s/" % (self._export_path, size)
-        icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon))
+        icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon_path))
         cpt.icon = icon_name
 
         icon_store_location = "{0}/{1}".format(path, icon_name)
@@ -611,27 +611,40 @@ class MetadataExtractor:
 
         # filepath is checked because icon can reside in another binary
         # eg amarok's icon is in amarok-data
-        if os.path.exists(filepath):
-            try:
-                icon_data = DebFile(filepath).data.extractdata(icon)
-            except Exception as e:
-                print("Error while extracting icon '%s': %s" % (filepath, e))
-                return False
+        try:
+            icon_data = DebFile(deb_fname).data.extractdata(icon_path)
+        except Exception as e:
+            print("Error while extracting icon '%s': %s" % (deb_fname, e))
+            return False
 
-            if icon_data:
-                if not os.path.exists(path):
-                    os.makedirs(os.path.dirname(path))
+        split = size.split('x', 2)
+        icon_width = int(split[0])
+        icon_height = int(split[1])
 
-                if icon_name.endswith(".svg"):
-                    # render the SVG to a bitmap
-                    icon_store_location = icon_store_location.replace(".svg", ".png")
-                    self._render_to_png(icon_data, icon_store_location, size)
-                    return True
-                else:
-                    f = open(icon_store_location, "wb")
-                    f.write(icon_data)
-                    f.close()
-                    return True
+        if icon_data:
+            if not os.path.exists(path):
+                os.makedirs(os.path.dirname(path))
+
+            if icon_name.endswith(".svg"):
+                # render the SVG to a bitmap
+                icon_store_location = icon_store_location.replace(".svg", ".png")
+                self._render_svg_to_png(icon_data, icon_store_location, icon_width, icon_height)
+                return True
+            else:
+                # we don't trust upstream to have the right icon size present, and therefore
+                # always adjust the icon to the right size
+                stream = StringIO.StringIO(icon_data)
+                stream.seek(0)
+                img = None
+                try:
+                    img = Image.open(stream)
+                except Exception as e:
+                    cpt.add_ignore_reason("Unable to open icon file '%s'. Error: %s" % (icon_name, str(e)))
+                    return False
+                newimg = img.resize((icon_width, icon_height), Image.ANTIALIAS)
+                newimg.save(icon_store_location)
+                return True
+
         return False
 
     def _fetch_icon(self, cpt, filelist):
@@ -704,7 +717,7 @@ class MetadataExtractor:
         Parses a .desktop file and sets ComponentData properties
         '''
         df = RawConfigParser()
-        df.readfp(cStringIO.StringIO(dcontent))
+        df.readfp(StringIO.StringIO(dcontent))
 
         items = None
         try:
@@ -724,7 +737,7 @@ class MetadataExtractor:
                 pass
         except Exception as e:
             # this .desktop file is not interesting
-            compdata.add_ignore_reason("Error while reading .desktop data: %s", str(e))
+            compdata.add_ignore_reason("Error while reading .desktop data: %s" % str(e))
             return True
 
         # if we reached this step, we are dealing with a GUI desktop app
