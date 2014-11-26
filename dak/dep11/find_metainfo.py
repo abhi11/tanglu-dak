@@ -33,7 +33,6 @@ from daklib.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-
 class MetaInfoFinder:
     def __init__(self, session):
         '''
