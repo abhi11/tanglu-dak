@@ -32,6 +32,7 @@ from daklib.dbconn import *
 from daklib.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from dep11.component import IconSize
 
 class MetaInfoFinder:
     def __init__(self, session):
@@ -122,7 +123,6 @@ class IconFinder():
 
         cnf = Config()
         self._icon_theme_packages = cnf.value_list('DEP11::IconThemePackages')
-        self._icon_sizes = cnf.value_list('DEP11::IconSizes')
 
     def query_icon(self, size):
         '''
@@ -163,7 +163,7 @@ class IconFinder():
         result = self._session.execute(sql, params)
         rows = result.fetchall()
 
-        if (size) and (not rows):
+        if (size) and (size != "scalable") and (not rows):
             for pkg in self._icon_theme_packages:
                 # See if an icon-theme contains the icon.
                 # Especially KDE software is packaged that way
@@ -179,7 +179,7 @@ class IconFinder():
                 rows = result.fetchall()
                 if rows:
                     break
-
+        print rows
         for r in rows:
             path = str(r[0])
             filename = str(r[1])
@@ -193,27 +193,30 @@ class IconFinder():
 
         return False
 
-    def get_icon(self):
+    def get_icons(self, sizes):
         '''
         Returns the best possible icon available
         '''
         size_map_flist = dict()
 
-        all_sizes = self._icon_sizes
-        if not '256x256' in self._icon_sizes:
-            all_sizes.append('256x256')
-
-        for size in all_sizes:
-            flist = self.query_icon(size)
+        for size in sizes:
+            flist = self.query_icon(str(size))
             if (flist):
                 size_map_flist[size] = flist
 
-        # some software doesn't store icons in sized XDG directories.
-        # catch these here, and assume that the size is 64x64
-        if '64x64' not in size_map_flist.keys():
-            flist = self.query_icon(None)
+        if '64x64' not in size_map_flist:
+            # see if we can find a scalable vector graphic as icon
+            # we assume "64x64" as size here, and resize the vector
+            # graphic later.
+            flist = self.query_icon("scalable")
             if (flist):
-                size_map_flist = {'64x64':flist}
+                size_map_flist = {'64x64': flist}
+            else:
+                # some software doesn't store icons in sized XDG directories.
+                # catch these here, and assume that the size is 64x64
+                flist = self.query_icon(None)
+                if (flist):
+                    size_map_flist = {'64x64': flist}
 
         return size_map_flist
 

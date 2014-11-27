@@ -64,6 +64,30 @@ def get_dep11_header(suite_name, component_name):
                             default_flow_style=False, explicit_start=True,
                             explicit_end=False, width=200, indent=2)
 
+class IconSize:
+    '''
+    A simple type representing an icon size
+    '''
+    size = int()
+
+    def __init__(self, size):
+        if isinstance(size, basestring) or isinstance(size, str):
+            self.set_from_string(size)
+        else:
+            self.size = size
+
+    def __str__(self):
+        return "%ix%i" % (self.size, self.size)
+
+    def __int__(self):
+        return self.size
+
+    def set_from_string(self, s):
+        wd, ht = s.split('x')
+        if int(wd) != int(ht):
+            print("Warning: Processing asymetric icon.")
+        self.size = int(wd)
+
 class ProvidedItemType(object):
     '''
     Types supported as publicly provided interfaces. Used as keys in
@@ -77,7 +101,6 @@ class ProvidedItemType(object):
     PYTHON_3 = 'python3'
     FIRMWARE = 'firmware'
     CODEC = 'codecs'
-
 
 class DEP11Component:
     '''

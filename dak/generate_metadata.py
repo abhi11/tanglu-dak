@@ -125,15 +125,15 @@ class MetadataPool:
 
 ##############################################################################
 
-
 def make_icon_tar(suitename, component):
     '''
      icons-%(component)_%(size).tar.gz of each Component.
     '''
-    sizes  = ['128x128', '64x64']
+    cnf = Config()
+    sizes  = cnf.value_list('DEP11::IconSizes')
     for size in sizes:
-        icon_location_glob = os.path.join (Config()["Dir::MetaInfo"], suitename,  component, "*", "icons", size, "*.*")
-        tar_location = os.path.join (Config()["Dir::Root"], "dists", suitename, component)
+        icon_location_glob = os.path.join (cnf["Dir::MetaInfo"], suitename,  component, "*", "icons", size, "*.*")
+        tar_location = os.path.join (cnf["Dir::Root"], "dists", suitename, component)
 
         icon_tar_fname = os.path.join(tar_location, "icons-%s_%s.tar.gz" % (component, size))
         tar = tarfile.open(icon_tar_fname, "w:gz")

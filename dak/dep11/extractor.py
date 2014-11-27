@@ -27,11 +27,14 @@ import rsvg
 from tempfile import NamedTemporaryFile
 from PIL import Image
 
-from dep11.component import DEP11Component
+from dep11.component import DEP11Component, IconSize
 from dep11.find_metainfo import IconFinder
 from dep11.parsers import read_desktop_data, read_appstream_upstream_xml
 
 from daklib.config import Config
+
+xdg_icon_sizes = [IconSize(64), IconSize(72), IconSize(96), IconSize(128),
+                    IconSize(256), IconSize(256), IconSize(512)]
 
 class MetadataExtractor:
     '''
@@ -62,7 +65,16 @@ class MetadataExtractor:
         self._export_path = "%s/%s" % (cnf["Dir::MetaInfo"], component_basepath)
         self._public_url = "%s/%s" % (cnf["DEP11::Url"], component_basepath)
 
-        self._icon_sizes = cnf.value_list('DEP11::IconSizes')
+        # list of large sizes to scale down, in order to find more icons
+        self._large_icon_sizes = xdg_icon_sizes[:]
+        # list of icon sizes we want
+        self._icon_sizes = list()
+        for strsize in cnf.value_list('DEP11::IconSizes'):
+            self._icon_sizes.append(IconSize(strsize))
+
+        # remove smaller icons - we don't want to scale up icons later
+        while (len(self._large_icon_sizes) > 0) and (int(self._icon_sizes[0]) >= int(self._large_icon_sizes[0])):
+            del self._large_icon_sizes[0]
 
     @property
     def metadata(self):
@@ -186,6 +198,7 @@ class MetadataExtractor:
         '''
         Extracts the icon from the deb package and stores it in the cache.
         '''
+        svgicon = False
         if not self._icon_allowed(icon_path):
             cpt.add_ignore_reason("Icon file '%s' uses an unsupported image file format." % (os.path.basename(icon_path)))
             return False
@@ -193,8 +206,11 @@ class MetadataExtractor:
         if not os.path.exists(deb_fname):
             return False
 
-        path = "%s/icons/%s/" % (self._export_path, size)
+        path = "%s/icons/%s/" % (self._export_path, str(size))
         icon_name = "%s_%s" % (self._pkgname, os.path.basename(icon_path))
+        if icon_name.endswith(".svg"):
+            svgicon = True
+            icon_name = icon_name.replace(".svg", ".png")
         cpt.icon = icon_name
 
         icon_store_location = "{0}/{1}".format(path, icon_name)
@@ -210,18 +226,13 @@ class MetadataExtractor:
             print("Error while extracting icon '%s': %s" % (deb_fname, e))
             return False
 
-        split = size.split('x', 2)
-        icon_width = int(split[0])
-        icon_height = int(split[1])
-
         if icon_data:
             if not os.path.exists(path):
                 os.makedirs(os.path.dirname(path))
 
-            if icon_name.endswith(".svg"):
+            if svgicon:
                 # render the SVG to a bitmap
-                icon_store_location = icon_store_location.replace(".svg", ".png")
-                self._render_svg_to_png(icon_data, icon_store_location, icon_width, icon_height)
+                self._render_svg_to_png(icon_data, icon_store_location, int(size), int(size))
                 return True
             else:
                 # we don't trust upstream to have the right icon size present, and therefore
@@ -234,11 +245,28 @@ class MetadataExtractor:
                 except Exception as e:
                     cpt.add_ignore_reason("Unable to open icon file '%s'. Error: %s" % (icon_name, str(e)))
                     return False
-                newimg = img.resize((icon_width, icon_height), Image.ANTIALIAS)
+                newimg = img.resize((int(size), int(size)), Image.ANTIALIAS)
                 newimg.save(icon_store_location)
                 return True
 
         return False
+
+    def _match_and_store_icon(self, cpt, filelist, icon_name, size):
+        success = False
+        if size == "scalable":
+            size_str = "scalable"
+        else:
+            size_str = str(size)
+        icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size_str, icon_name)
+        filtered = fnmatch.filter(filelist, icon_path)
+        if not filtered:
+            return False
+        if not size in self._icon_sizes:
+            for asize in self._icon_sizes:
+                success = self._store_icon(cpt, filtered[0], self._filename, asize) or success
+        else:
+            success = self._store_icon(cpt, filtered[0], self._filename, size)
+        return success
 
     def _fetch_icon(self, cpt, filelist):
         '''
@@ -252,34 +280,29 @@ class MetadataExtractor:
         icon = cpt.icon
         cpt.icon = os.path.basename (icon)
 
-        # list of large sizes to scal down, in order to find more icons
-        large_sizes = ['256x256']
-
         success = False
         if icon.startswith("/"):
             if icon[1:] in filelist:
-                return self._store_icon(cpt, icon[1:], self._filename, '64x64')
+                return self._store_icon(cpt, icon[1:], self._filename, IconSize(64))
         else:
             ret = False
             # check if there is some kind of file-extension.
             # if there is none, the referenced icon is likely a stock icon, and we assume .png
             if "." in cpt.icon:
-                icon_name = icon
+                icon_name_ext = icon
             else:
-                icon_name = icon + ".png"
+                icon_name_ext = icon + ".png"
             for size in self._icon_sizes:
-                icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon_name)
-                filtered = fnmatch.filter(filelist, icon_path)
-                if filtered:
-                    success = self._store_icon(cpt, filtered[0], self._filename, size) or success
+                success = self._match_and_store_icon(cpt, filelist, icon_name_ext, size) or success
             if not success:
                 # we cheat and test for larger icons as well, which can be scaled down
-                for size in large_sizes:
-                    icon_path = "usr/share/icons/hicolor/%s/*/%s" % (size, icon_name)
-                    filtered = fnmatch.filter(filelist, icon_path)
-                    if filtered:
-                       for asize in self._icon_sizes:
-                            success = self._store_icon(cpt, filtered[0], self._filename, asize) or success
+                # first check for a scalable graphic
+                # TODO: Deal with SVGZ icons
+                success = self._match_and_store_icon(cpt, filelist, icon + ".svg", "scalable")
+                # then try to scale down larger graphics
+                if not success:
+                    for size in self._large_icon_sizes:
+                        success = self._match_and_store_icon(cpt, filelist, icon_name_ext, size) or success
 
         if not success:
             last_pixmap = None
@@ -291,7 +314,7 @@ class MetadataExtractor:
                         # the pixmap dir can contain icons in multiple formats, and store_icon() fails in case
                         # the icon format is not allowed. We therefore only exit here, if the icon has a valid format
                         if self._icon_allowed(path):
-                            return self._store_icon(cpt, path, self._filename, '64x64')
+                            return self._store_icon(cpt, path, self._filename, IconSize(64))
                         last_pixmap = path
             if last_pixmap:
                 # we don't do a global icon search anymore, since we've found an (unsuitable) icon
@@ -301,7 +324,9 @@ class MetadataExtractor:
 
             # the IconFinder uses it's own, new session, since we run multiprocess here
             ficon = IconFinder(self._pkgname, icon, self._binid, self._suite_name, self._component)
-            icon_dict = ficon.get_icon()
+            all_icon_sizes = self._icon_sizes
+            all_icon_sizes.extend(self._large_icon_sizes)
+            icon_dict = ficon.get_icons(all_icon_sizes)
             ficon.close()
             success = False
             if icon_dict:
@@ -312,7 +337,7 @@ class MetadataExtractor:
                                 cpt._component + '/' + icon_dict[size][1])
                     success = self._store_icon(cpt, icon_dict[size][0], filepath, size) or success
                 if not success:
-                    for size in large_sizes:
+                    for size in self._large_icon_sizes:
                         if not size in icon_dict:
                             continue
                         filepath = (Config()["Dir::Pool"] +
