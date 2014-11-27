@@ -277,28 +277,29 @@ class MetadataExtractor:
             # keep metadata if Icon self itself is not present
             return True
 
-        icon = cpt.icon
-        cpt.icon = os.path.basename (icon)
+        icon_str = cpt.icon
+        cpt.icon = None
 
         success = False
-        if icon.startswith("/"):
-            if icon[1:] in filelist:
-                return self._store_icon(cpt, icon[1:], self._filename, IconSize(64))
+        if icon_str.startswith("/"):
+            if icon_str[1:] in filelist:
+                return self._store_icon(cpt, icon_str[1:], self._filename, IconSize(64))
         else:
             ret = False
+            icon_str = os.path.basename (icon_str)
             # check if there is some kind of file-extension.
             # if there is none, the referenced icon is likely a stock icon, and we assume .png
-            if "." in cpt.icon:
-                icon_name_ext = icon
+            if "." in icon_str:
+                icon_name_ext = icon_str
             else:
-                icon_name_ext = icon + ".png"
+                icon_name_ext = icon_str + ".png"
             for size in self._icon_sizes:
                 success = self._match_and_store_icon(cpt, filelist, icon_name_ext, size) or success
             if not success:
                 # we cheat and test for larger icons as well, which can be scaled down
                 # first check for a scalable graphic
                 # TODO: Deal with SVGZ icons
-                success = self._match_and_store_icon(cpt, filelist, icon + ".svg", "scalable")
+                success = self._match_and_store_icon(cpt, filelist, icon_str + ".svg", "scalable")
                 # then try to scale down larger graphics
                 if not success:
                     for size in self._large_icon_sizes:
@@ -309,8 +310,8 @@ class MetadataExtractor:
             # handle stuff in the pixmaps directory
             for path in filelist:
                 if path.startswith("usr/share/pixmaps"):
-                    icon_basename = os.path.basename(path)
-                    if ((icon_basename == icon) or (os.path.splitext(icon_basename)[0] == icon)):
+                    file_basename = os.path.basename(path)
+                    if ((file_basename == icon_str) or (os.path.splitext(file_basename)[0] == icon_str)):
                         # the pixmap dir can contain icons in multiple formats, and store_icon() fails in case
                         # the icon format is not allowed. We therefore only exit here, if the icon has a valid format
                         if self._icon_allowed(path):
@@ -323,7 +324,7 @@ class MetadataExtractor:
                 return False
 
             # the IconFinder uses it's own, new session, since we run multiprocess here
-            ficon = IconFinder(self._pkgname, icon, self._binid, self._suite_name, self._component)
+            ficon = IconFinder(self._pkgname, icon_str, self._binid, self._suite_name, self._component)
             all_icon_sizes = self._icon_sizes
             all_icon_sizes.extend(self._large_icon_sizes)
             icon_dict = ficon.get_icons(all_icon_sizes)
@@ -346,7 +347,7 @@ class MetadataExtractor:
                             success = self._store_icon(cpt, icon_dict[size][0], filepath, asize) or success
                 return success
 
-            cpt.add_ignore_reason("Icon '%s' was not found in the archive or is not available in a suitable size (at least 64x64)." % (cpt.icon))
+            cpt.add_ignore_reason("Icon '%s' was not found in the archive or is not available in a suitable size (at least 64x64)." % (icon_str))
             return False
 
         return True
