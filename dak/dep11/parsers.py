@@ -30,7 +30,7 @@ import cStringIO as StringIO
 
 from dep11.component import DEP11Component, ProvidedItemType, str_enc_dec
 
-def read_desktop_data(dcontent, cpt):
+def read_desktop_data(cpt, dcontent):
     '''
     Parses a .desktop file and sets ComponentData properties
     '''
@@ -221,7 +221,7 @@ def _parse_screenshots_tag(subs):
 
     return shots
 
-def read_appstream_upstream_xml(xml_content, cpt):
+def read_appstream_upstream_xml(cpt, xml_content):
     '''
     Reads the appdata from the xml file in usr/share/appdata.
     Sets ComponentData properties

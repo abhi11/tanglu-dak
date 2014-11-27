@@ -179,7 +179,7 @@ class IconFinder():
                 rows = result.fetchall()
                 if rows:
                     break
-        print rows
+
         for r in rows:
             path = str(r[0])
             filename = str(r[1])

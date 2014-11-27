@@ -368,7 +368,25 @@ class MetadataExtractor:
             return [compdata]
 
         component_dict = dict()
-        # First process all XML files
+
+        # first cache all additional metadata (.desktop/.pc/etc.) files
+        mdata_raw = dict()
+        for meta_file in self._mfiles:
+            if meta_file.endswith(".desktop"):
+                # We have a .desktop file
+                dcontent = None
+                cpt_id = os.path.basename(meta_file)
+
+                error = None
+                try:
+                    dcontent = str(self._deb.data.extractdata(meta_file))
+                except Exception as e:
+                    error = "Could not extract file '%s' from package '%s'. Error: %s" % (cpt_id, os.path.basename(self._filename), str(e))
+                if not dcontent and not error:
+                    error = "File '%s' from package '%s' appeared empty." % (cpt_id, os.path.basename(self._filename))
+                mdata_raw[cpt_id] = {'error': error, 'data': dcontent}
+
+        # process all AppStream XML files
         for meta_file in self._mfiles:
             if meta_file.endswith(".xml"):
                 xml_content = None
@@ -377,47 +395,51 @@ class MetadataExtractor:
                 try:
                     xml_content = str(self._deb.data.extractdata(meta_file))
                 except Exception as e:
-                    # inability to read an AppStream XML file is a valid ignore reason, skip this package.
+                    # inability to read an AppStream XML file is a valid reason to skip the whole package
                     compdata.add_ignore_reason("Could not extract file '%s' from package '%s'. Error: %s" % (meta_file, self._filename, str(e)))
                     return [compdata]
-                if xml_content:
-                    read_appstream_upstream_xml(xml_content, compdata)
-                    # Reads the desktop files associated with the xml file
-                    if compdata.cid:
+                if not xml_content:
+                    continue
+
+                read_appstream_upstream_xml(compdata, xml_content)
+                # Reads the desktop files associated with the xml file
+                if not compdata.cid:
+                    # if there is no ID at all, we dump this component, since we cannot do anything with it at all
+                    compdata.add_ignore_reason("Could not determine an id for this component.")
+                    continue
+
+                component_dict[compdata.cid] = compdata
+                if compdata.kind == "desktop-app":
+                    data = mdata_raw.get(compdata.cid)
+                    if not data:
+                        compdata.add_ignore_reason("Found an AppStream upstream XML file, but the associated .desktop file is missing.")
+                        continue
+                    if data['error']:
+                        # add a non-fatal hint that we couldn't process the .desktop file
+                        compdata.add_hint(data['error'])
+                    else:
+                        # we have a .desktop component, extend it with the associated .desktop data
+                        read_desktop_data(compdata, data['data'])
+                    del mdata_raw[compdata.cid]
+
+        # now process the remaining metadata files, which have not been processed together with the XML
+        for mid, mdata in mdata_raw.items():
+            if mid.endswith(".desktop"):
+                # We have a .desktop file
+                compdata = DEP11Component(suitename, self._component, self._binid, self._pkgname)
+                compdata.cid = mid
+
+                if mdata['error']:
+                    # add a fatal hint that we couldn't process this file
+                    compdata.add_ignore_reason(mdata['error'])
+                else:
+                    ret = read_desktop_data(compdata, mdata['data'])
+                    if ret or not compdata.has_ignore_reason():
                         component_dict[compdata.cid] = compdata
                     else:
-                        # if there is no ID at all, we dump this component, since we cannot do anything with it at all
-                        compdata.add_ignore_reason("Could not determine an id for this component.")
-
-        # then extend the XML information with data from other files, e.g. .desktop or .pc files
-        for meta_file in self._mfiles:
-            if meta_file.endswith(".desktop"):
-                # We have a .desktop file
-                dcontent = None
-                cpt_id = os.path.basename(meta_file)
-                # in case we have a component with that ID already, extend it using the .desktop file data
-                compdata = component_dict.get(cpt_id)
-                if not compdata:
-                    compdata = DEP11Component(suitename, self._component, self._binid, self._pkgname)
-                    compdata.cid = cpt_id
-                    component_dict[cpt_id] = compdata
-                elif compdata.has_ignore_reason():
-                    # don't add .desktop file information if we already decided to ignore this
-                    continue
-
-                try:
-                    dcontent = str(self._deb.data.extractdata(meta_file))
-                except Exception as e:
-                    compdata.add_ignore_reason("Could not extract file '%s' from package '%s'. Error: %s" % (cpt_id, os.path.basename(self._filename), str(e)))
-                    continue
-                if not dcontent:
-                    compdata.add_ignore_reason("File '%s' from package '%s' appeared empty." % (cpt_id, os.path.basename(self._filename)))
-                    continue
-                ret = read_desktop_data(dcontent, compdata)
-                if not ret and compdata.has_ignore_reason():
-                    # this means that reading the .desktop file failed and we should
-                    # silently ignore this issue (since the file was marked to be invisible on purpose)
-                    del component_dict[cpt_id]
+                        # this means that reading the .desktop file failed and we should
+                        # silently ignore this issue (since the file was marked to be invisible on purpose)
+                        pass
 
         for cpt in component_dict.values():
             self._fetch_icon(cpt, filelist)
