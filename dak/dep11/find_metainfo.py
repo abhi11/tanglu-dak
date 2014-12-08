@@ -151,14 +151,14 @@ class IconFinder():
         sql = """ select bc.file, f.filename
         from
         binaries b, bin_contents bc, files f,
-        suite s, override o, component c
+        suite s, override o, component c, bin_associations ba
         where b.package like :package and b.file = f.id
         and (bc.file like :icon) and
         (bc.file not like '%.xpm' and bc.file not like '%.tiff')
         and b.id <> :id and b.id = bc.binary_id
         and  c.name = :component and c.id = o.component
-        and o.package = b.package and s.suite_name = :suitename
-        and s.id = o.suite"""
+        and o.package = b.package and b.id = ba.bin
+        and ba.suite = s.id and s.suite_name = :suitename"""
 
         result = self._session.execute(sql, params)
         rows = result.fetchall()
@@ -238,4 +238,4 @@ if __name__ == "__main__":
     '''
     #test
     f = IconFinder("amarok","amarok",140743,'aequorea','main')
-    f.get_icon()
+    f.get_icons()
