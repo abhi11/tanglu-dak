@@ -189,6 +189,7 @@ class MetadataExtractor:
 
         img =  cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
         ctx = cairo.Context(img)
+        ctx.scale(1,1);
         handler= rsvg.Handle(None, data)
         handler.render_cairo(ctx)
 
