@@ -34,7 +34,7 @@ import yaml
 import uuid
 import glob
 
-from dep11.find_metainfo import *
+from find_metainfo import *
 from dep11.extractor import MetadataExtractor
 from dep11.component import DEP11Component, DEP11YamlDumper, get_dep11_header
 
