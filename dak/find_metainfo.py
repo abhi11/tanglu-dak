@@ -122,12 +122,13 @@ class IconFinder(AbstractIconFinder):
         self._icon_theme_packages = cnf.value_list('DEP11::IconThemePackages')
         self._pool_dir = cnf["Dir::Pool"]
 
-    def query_icon(self, size):
+        self._allowed_exts = (".png")
+
+    def query_icon(self, size, package, icon, binid):
         '''
         function to query icon files from similar packages.
         Returns path of the icon
         '''
-        ext_allowed = ('.png', '.svg', '.xcf', '.gif', '.svgz')
 
         # we need our own session, since we use multiprocessing and an icon can be queried
         # at any time, and even in parallel
@@ -135,17 +136,17 @@ class IconFinder(AbstractIconFinder):
 
         if size:
             params = {
-                'package': self._package + '%',
-                'icon': 'usr/share/icons/hicolor/' + size + '/%' + self._icon + '%',
-                'id': self._binid,
+                'package': package + '%',
+                'icon': 'usr/share/icons/hicolor/' + size + '/%' + icon + '%',
+                'id': binid,
                 'suitename': self._suite_name,
                 'component': self._component,
             }
         else:
             params = {
-                'package': self._package + '%',
-                'icon': 'usr/share/pixmaps/' + self._icon + '%',
-                'id': self._binid,
+                'package': package + '%',
+                'icon': 'usr/share/pixmaps/' + icon + '%',
+                'id': binid,
                 'suitename': self._suite_name,
                 'component': self._component
             }
@@ -172,8 +173,8 @@ class IconFinder(AbstractIconFinder):
                 # FIXME: Make the hardcoded package-names a config option
                 params = {
                     'package': pkg,
-                    'icon': 'usr/share/icons/%/' + size + '/%' + self._icon + '%',
-                    'id': self._binid,
+                    'icon': 'usr/share/icons/%/' + size + '/%' + icon + '%',
+                    'id': binid,
                     'suitename': self._suite_name,
                     'component': self._component
                 }
@@ -188,12 +189,10 @@ class IconFinder(AbstractIconFinder):
         for r in rows:
             path = str(r[0])
             deb_fname = os.path.join(self._pool_dir, self._component, str(r[1]))
-            if path.endswith(self._icon) \
-                or path.endswith(self._icon+'.png') \
-                or path.endswith(self._icon+'.svg') \
-                or path.endswith(self._icon+'.xcf') \
-                or path.endswith(self._icon+'.gif') \
-                or path.endswith(self._icon+'.svgz'):
+            if path.endswith(icon):
+                return {'icon_fname': path, 'deb_fname': deb_fname}
+            for ext in self._allowed_exts:
+                if path.endswith(icon+ext):
                     return {'icon_fname': path, 'deb_fname': deb_fname}
 
         return False
@@ -204,12 +203,8 @@ class IconFinder(AbstractIconFinder):
         '''
         size_map_flist = dict()
 
-        self._package = package
-        self._icon = icon
-        self._binid = binid
-
         for size in sizes:
-            flist = self.query_icon(str(size))
+            flist = self.query_icon(str(size), package, icon, binid)
             if (flist):
                 size_map_flist[size] = flist
 
@@ -217,17 +212,20 @@ class IconFinder(AbstractIconFinder):
             # see if we can find a scalable vector graphic as icon
             # we assume "64x64" as size here, and resize the vector
             # graphic later.
-            flist = self.query_icon("scalable")
+            flist = self.query_icon("scalable", package, icon, binid)
             if (flist):
                 size_map_flist = {'64x64': flist}
             else:
                 # some software doesn't store icons in sized XDG directories.
                 # catch these here, and assume that the size is 64x64
-                flist = self.query_icon(None)
+                flist = self.query_icon(None, package, icon, binid)
                 if (flist):
                     size_map_flist = {'64x64': flist}
 
         return size_map_flist
+
+    def set_allowed_icon_extensions(self, exts):
+        self._allowed_exts = exts
 
 # For testing
 
