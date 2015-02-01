@@ -786,7 +786,7 @@ def main ():
                 add_nbs(dubious_nbs, source, latest_version, package, suite_id, session)
 
     if "nviu" in checks:
-        do_newer_version('bartholomea', 'staging', 'NVIU', session)
+        do_newer_version('chromodoris', 'staging', 'NVIU', session)
 
     # FIXME: Not used in Tanglu
     #if "nvit" in checks:

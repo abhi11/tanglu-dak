@@ -2274,6 +2274,12 @@ class Suite(ORMObject):
     def path(self):
         return os.path.join(self.archive.path, 'dists', self.suite_name)
 
+    @property
+    def release_suite_output(self):
+        if self.release_suite is not None:
+            return self.release_suite
+        return self.suite_name
+
 __all__.append('Suite')
 
 @session_wrapper
@@ -2292,8 +2298,22 @@ def get_suite(suite, session=None):
     @return: Suite object for the requested suite name (None if not present)
     """
 
+    # Start by looking for the dak internal name
     q = session.query(Suite).filter_by(suite_name=suite)
+    try:
+        return q.one()
+    except NoResultFound:
+        pass
 
+    # Now try codename
+    q = session.query(Suite).filter_by(codename=suite)
+    try:
+        return q.one()
+    except NoResultFound:
+        pass
+
+    # Finally give release_suite a try
+    q = session.query(Suite).filter_by(release_suite=suite)
     try:
         return q.one()
     except NoResultFound:
@@ -2631,6 +2651,7 @@ class DBConn(object):
             'obsolete_any_associations',
             'obsolete_any_by_all_associations',
             'obsolete_src_associations',
+            'package_list',
             'source_suite',
             'src_associations_bin',
             'src_associations_src',

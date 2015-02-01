@@ -35,7 +35,7 @@ exportpublic=$public/rsync/export
 ftpgroup=debadmin
 
 public_archives=(janus)
-suites_incoming="staging aequorea-updates"
+suites_incoming="staging bartholomea-updates"
 
 TMPDIR=${base}/tmp
 

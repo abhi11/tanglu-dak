@@ -20,11 +20,11 @@ dak clean-suites -m 10000
 dak clean-queues
 
 # Send a report on NEW/BYHAND packages
-dak queue-report -d new,byhand | mail -e -s "Tanglu NEW and BYHAND on $(date +%D)" ftpmaster@ftp-master.tanglu.org
+dak queue-report -d new,byhand | mail -e -s "Tanglu NEW and BYHAND on $(date +%D)" -a "From: Tanglu FTP Masters <ftpmaster@ftp-master.tanglu.org>" ftpmaster@ftp-master.tanglu.org
 
 # and one on crufty packages
-dak cruft-report -R --mode bdo -s staging -s bartholomea > $webdir/cruft-report-daily.txt
-cat $webdir/cruft-report-daily.txt | mail -e -s "Tanglu 2 (Bartholomea) archive cruft report for $(date +%D)" mak@debian.org
+dak cruft-report -R --mode bdo -s staging -s chromodoris > $webdir/cruft-report-daily.txt
+cat $webdir/cruft-report-daily.txt | mail -e -s "Tanglu 2 (Chromodoris) archive cruft report for $(date +%D)" -a "From: Tanglu FTP Masters <ftpmaster@ftp-master.tanglu.org>" mak@debian.org
 
 ################################################################################
 echo "Finally, all is done, compressing logfile"

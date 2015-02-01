@@ -1,13 +1,10 @@
 #!/usr/bin/env python
-# coding=utf8
 
 """
-Add a new release_suite name which we use in generate_releases
-
-@contact: Debian FTP Master <ftpmaster@debian.org>
-@copyright: 2014, Mark Hymers <mhy@debian.org>
-@license: GNU General Public License version 2 or later
+Adds bin_dep11 table. Stores appstream metadata per binary
 """
+
+# Copyright (C) 2014 Abhishek Bhattacharjee <abhishek.bhattacharjee11@gmail.com>
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,35 +20,48 @@ Add a new release_suite name which we use in generate_releases
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-################################################################################
+############################################################################
+
+# the script is part of project under Google Summer of Code '14
+# Project: AppStream/DEP-11 for the Debian Archive
+# Mentor: Matthias Klumpp
+
+############################################################################
+
 
 import psycopg2
 from daklib.dak_exceptions import DBUpdateError
 from daklib.config import Config
+from daklib.dbconn import *
 
-# This includes some updates to the tables which are Debian specific but
-# shouldn't affect anyone else
 statements = [
-"ALTER TABLE suite ADD COLUMN release_suite TEXT DEFAULT NULL",
-"UPDATE suite SET release_suite = 'oldstable-updates' WHERE suite_name = 'squeeze-updates'",
-"UPDATE suite SET release_suite = 'stable-updates' WHERE suite_name = 'wheezy-updates'",
-"UPDATE suite SET release_suite = 'testing-updates' WHERE suite_name = 'jessie-updates'",
+    """
+    CREATE TABLE bin_dep11(id SERIAL PRIMARY KEY,
+    binary_id integer not null,
+    metadata text not null,
+    hints text,
+    ignore boolean not null
+    );
+    """,
+
+    """
+    ALTER TABLE bin_dep11 ADD CONSTRAINT binaries_bin_dep11
+    FOREIGN KEY (binary_id) REFERENCES binaries (id) ON DELETE CASCADE;
+    """
 ]
 
-################################################################################
+##############################################################################
+
 def do_update(self):
     print __doc__
     try:
-        cnf = Config()
-
         c = self.db.cursor()
-
         for stmt in statements:
             c.execute(stmt)
 
-        c.execute("UPDATE config SET value = '105' WHERE name = 'db_revision'")
+        c.execute("UPDATE config SET value = '107' WHERE name = 'db_revision'")
         self.db.commit()
 
     except psycopg2.ProgrammingError as msg:
         self.db.rollback()
-        raise DBUpdateError('Unable to apply sick update 105, rollback issued. Error message: {0}'.format(msg))
+        raise DBUpdateError("Unable to apply sick update 107, rollback issued. Error message: {0}".format(msg))

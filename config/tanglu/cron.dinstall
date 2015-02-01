@@ -357,6 +357,14 @@ GO=(
 )
 stage $GO
 
+GO=(
+    FUNC="debile_update"
+    TIME=""
+    ARGS=""
+    ERR=""
+)
+stage $GO
+
 remove_all_locks
 trap - EXIT TERM HUP INT QUIT
 
@@ -434,14 +442,6 @@ rm -f "${LOCK_BRITNEY}"
 
 GO=(
     FUNC="cleantransactions"
-    TIME=""
-    ARGS=""
-    ERR=""
-)
-stage $GO
-
-GO=(
-    FUNC="debile_update"
     TIME=""
     ARGS=""
     ERR=""

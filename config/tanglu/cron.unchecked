@@ -127,7 +127,6 @@ dak contents -l 1000 scan-source
 
 # cleanup incoming upload dir
 [ "$(ls -A /pub/ftp/incoming)" ] && find /pub/ftp/incoming/ -mtime +2 -exec rm {} \;
-[ "$(ls -A /pub/ftp/trainee-incoming)" ] && find /pub/ftp/incoming/ -mtime +2 -exec rm {} \;
 
 ################################################################################
 echo "Completed. Compressing logfile."

@@ -29,11 +29,11 @@ set -u
 export SCRIPTVARS=/srv/dak/config/tanglu/vars
 . $SCRIPTVARS
 
-IMPORTSUITE=${1:-"bartholomea"}
+IMPORTSUITE=${1:-"chromodoris"}
 BRITNEY=""
 
 case "${IMPORTSUITE}" in
-    bartholomea)
+    chromodoris)
         # What file we look at.
         INPUTFILE="/var/archive-kit/britney2/var/Heidi/set/current"
         # changelog doesn't work at time

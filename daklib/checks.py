@@ -300,7 +300,7 @@ class BinaryCheck(Check):
         fn = binary.hashed_file.filename
         control = binary.control
 
-        for field in ('Package', 'Architecture', 'Version', 'Description'):
+        for field in ('Package', 'Architecture', 'Version', 'Description', 'Section'):
             if field not in control:
                 raise Reject('{0}: Missing mandatory field {0}.'.format(fn, field))
 
@@ -360,6 +360,11 @@ class BinaryCheck(Check):
                     apt_pkg.parse_src_depends(value)
                 except:
                     raise Reject('{0}: APT could not parse {1} field'.format(fn, field))
+
+        # "Multi-Arch: no" breaks wanna-build, #768353
+        multi_arch = control.get("Multi-Arch")
+        if multi_arch == 'no':
+            raise Reject('{0}: Multi-Arch: no support in Debian is broken (#768353)'.format(fn))
 
 class BinaryTimestampCheck(Check):
     """check timestamps of files in binary packages
@@ -684,6 +689,7 @@ class NoSourceOnlyCheck(Check):
 
         if not allow_no_arch_indep_uploads \
            and 'all' not in changes.architectures \
+           and 'experimental' not in changes.distributions \
            and changes.source.package_list.has_arch_indep_packages():
             raise Reject('Uploads not including architecture-independent packages are not allowed.')
 
