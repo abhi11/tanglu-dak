@@ -115,18 +115,12 @@ class IconFinder(AbstractIconFinder):
     searches icons of similar packages. Ignores the package with binid.
     '''
     def __init__(self, suitename, component):
-        self._session = DBConn().session()
         self._suite_name = suitename
         self._component = component
 
         cnf = Config()
         self._icon_theme_packages = cnf.value_list('DEP11::IconThemePackages')
-
-    def __del__(self):
-        """
-        Closes the session
-        """
-        self._session.close()
+        self._pool_dir = cnf["Dir::Pool"]
 
     def query_icon(self, size):
         '''
@@ -134,6 +128,10 @@ class IconFinder(AbstractIconFinder):
         Returns path of the icon
         '''
         ext_allowed = ('.png', '.svg', '.xcf', '.gif', '.svgz')
+
+        # we need our own session, since we use multiprocessing and an icon can be queried
+        # at any time, and even in parallel
+        session = DBConn().session()
 
         if size:
             params = {
@@ -164,7 +162,7 @@ class IconFinder(AbstractIconFinder):
         and o.package = b.package and b.id = ba.bin
         and ba.suite = s.id and s.suite_name = :suitename"""
 
-        result = self._session.execute(sql, params)
+        result = session.execute(sql, params)
         rows = result.fetchall()
 
         if (size) and (size != "scalable") and (not rows):
@@ -179,21 +177,24 @@ class IconFinder(AbstractIconFinder):
                     'suitename': self._suite_name,
                     'component': self._component
                 }
-                result = self._session.execute(sql, params)
+                result = session.execute(sql, params)
                 rows = result.fetchall()
                 if rows:
                     break
 
+        # we don't need the session anymore beyond this point
+        session.close()
+
         for r in rows:
             path = str(r[0])
-            filename = str(r[1])
+            deb_fname = os.path.join(self._pool_dir, self._component, str(r[1]))
             if path.endswith(self._icon) \
                 or path.endswith(self._icon+'.png') \
                 or path.endswith(self._icon+'.svg') \
                 or path.endswith(self._icon+'.xcf') \
                 or path.endswith(self._icon+'.gif') \
                 or path.endswith(self._icon+'.svgz'):
-                    return [path, filename]
+                    return {'icon_fname': path, 'deb_fname': deb_fname}
 
         return False
 
@@ -206,8 +207,6 @@ class IconFinder(AbstractIconFinder):
         self._package = package
         self._icon = icon
         self._binid = binid
-
-        print ("Searching icons for: %s" % (package))
 
         for size in sizes:
             flist = self.query_icon(str(size))

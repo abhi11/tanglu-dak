@@ -70,7 +70,7 @@ def usage():
     print("""Usage: dak generate_metadata -s <suitename> [OPTION]
 Extract DEP-11 metadata for the specified suite.
 
-  -e, --expire-cache   Clear the icon/screenshot cache from stale data.
+  -e, --expire   Clear the icon/screenshot cache from stale data.
     """)
 
 class MetadataPool:
@@ -144,13 +144,7 @@ def make_icon_tar(suitename, component):
 
         tar.close()
 
-def extract_metadata(sn, c, pkgname, metainfo_files, binid, package_fname, arch):
-    cnf = Config()
-    mde = MetadataExtractor(sn, c,
-                    cnf["Dir::MetaInfo"],
-                    cnf["DEP11::Url"],
-                    cnf.value_list('DEP11::IconSizes'))
-    mde.icon_finder = IconFinder(sn, c)
+def extract_metadata(mde, sn, pkgname, metainfo_files, binid, package_fname, arch):
     cpts = mde.process(pkgname, package_fname, metainfo_files, binid)
 
     data = dict()
@@ -195,6 +189,13 @@ def process_suite(session, suite, logger, force=False):
             else:
                 logger.log(['E: ', msg])
 
+        cnf = Config()
+        iconf = IconFinder(suite.suite_name, component)
+        mde = MetadataExtractor(suite.suite_name, component,
+                        cnf["Dir::MetaInfo"],
+                        cnf["DEP11::Url"],
+                        cnf.value_list('DEP11::IconSizes'),
+                        iconf)
 
         for pkgname, pkg in pkglist.items():
             for arch, data in pkg.items():
@@ -203,7 +204,7 @@ def process_suite(session, suite, logger, force=False):
                     print('Package not found: %s' % (package_fname))
                     continue
                 pool.apply_async(extract_metadata,
-                            (suite.suite_name, component, pkgname, data['files'], data['binid'], package_fname, arch), callback=parse_results)
+                            (mde, suite.suite_name, pkgname, data['files'], data['binid'], package_fname, arch), callback=parse_results)
         pool.close()
         pool.join()
 
