@@ -33,6 +33,7 @@ from daklib.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dep11.component import IconSize
+from dep11.extractor import AbstractIconFinder
 
 class MetaInfoFinder:
     def __init__(self, session):
@@ -108,21 +109,24 @@ class MetaInfoFinder:
 ###########################################################################
 
 
-class IconFinder():
+class IconFinder(AbstractIconFinder):
     '''
     To be used when icon is not found through regular method.This class
     searches icons of similar packages. Ignores the package with binid.
     '''
-    def __init__(self, package, icon, binid, suitename, component):
+    def __init__(self, suitename, component):
         self._session = DBConn().session()
-        self._package = package
-        self._icon = icon
-        self._binid = binid
         self._suite_name = suitename
         self._component = component
 
         cnf = Config()
         self._icon_theme_packages = cnf.value_list('DEP11::IconThemePackages')
+
+    def __del__(self):
+        """
+        Closes the session
+        """
+        self._session.close()
 
     def query_icon(self, size):
         '''
@@ -193,11 +197,17 @@ class IconFinder():
 
         return False
 
-    def get_icons(self, sizes):
+    def get_icons(self, package, icon, sizes, binid):
         '''
         Returns the best possible icon available
         '''
         size_map_flist = dict()
+
+        self._package = package
+        self._icon = icon
+        self._binid = binid
+
+        print ("Searching icons for: %s" % (package))
 
         for size in sizes:
             flist = self.query_icon(str(size))
@@ -219,12 +229,6 @@ class IconFinder():
                     size_map_flist = {'64x64': flist}
 
         return size_map_flist
-
-    def close(self):
-        """
-        Closes the session
-        """
-        self._session.close()
 
 # For testing
 

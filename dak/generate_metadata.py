@@ -145,12 +145,17 @@ def make_icon_tar(suitename, component):
         tar.close()
 
 def extract_metadata(sn, c, pkgname, metainfo_files, binid, package_fname, arch):
-    mde = MetadataExtractor(sn, c, pkgname, metainfo_files, binid, package_fname)
-    mde.process()
+    cnf = Config()
+    mde = MetadataExtractor(sn, c,
+                    cnf["Dir::MetaInfo"],
+                    cnf["DEP11::Url"],
+                    cnf.value_list('DEP11::IconSizes'))
+    mde.icon_finder = IconFinder(sn, c)
+    cpts = mde.process(pkgname, package_fname, metainfo_files, binid)
 
     data = dict()
     data['arch'] = arch
-    data['cpts'] = mde.metadata
+    data['cpts'] = cpts
     data['message'] = "Processed package: %s (%s/%s)" % (pkgname, sn, arch)
     return (PROC_STATUS_SUCCESS, data)
 
