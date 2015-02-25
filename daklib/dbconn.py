@@ -2568,6 +2568,34 @@ __all__.append('get_version_checks')
 
 ################################################################################
 
+class DEP11Metadata():
+
+    def __init__(self, session):
+        self._session = session
+
+    def insert_data(self, binid, cid, yamldoc, hints, ignore):
+        d = {"bin_id": binid,
+             "cpt_id": cid,
+             "yaml_data": yamldoc,
+             "hints": hints,
+             "ignore": ignore}
+
+        sql = """insert into bin_dep11(binary_id,cpt_id,metadata,hints,ignore)
+        VALUES (:bin_id, :cpt_id, :yaml_data, :hints, :ignore)"""
+        self._session.execute(sql, d)
+
+    def remove_data(self, suitename):
+        sql = """delete from bin_dep11 where binary_id in
+        (select distinct(b.id) from binaries b,override o,suite s
+        where b.package = o.package and o.suite = s.id
+        and s.suite_name= :suitename)"""
+        self._session.execute(sql, {"suitename": suitename})
+        self._session.commit()
+
+__all__.append('DEP11Metadata')
+
+################################################################################
+
 class DBConn(object):
     """
     database module init.

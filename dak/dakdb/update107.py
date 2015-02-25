@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Adds bin_dep11 table. Stores appstream metadata per binary
+Adds bin_dep11 table. Stores DEP-11 metadata per binary
 """
 
 # Copyright (C) 2014 Abhishek Bhattacharjee <abhishek.bhattacharjee11@gmail.com>
@@ -36,11 +36,13 @@ from daklib.dbconn import *
 
 statements = [
     """
-    CREATE TABLE bin_dep11(id SERIAL PRIMARY KEY,
-    binary_id integer not null,
-    metadata text not null,
-    hints text,
-    ignore boolean not null
+    CREATE TABLE bin_dep11(
+        id SERIAL PRIMARY KEY,
+        binary_id INTEGER NOT NULL,
+        cpt_id TEXT NOT NULL,
+        metadata TEXT NOT NULL,
+        hints TEXT,
+        ignore boolean NOT NULL
     );
     """,
 

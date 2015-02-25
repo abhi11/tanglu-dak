@@ -9,7 +9,7 @@ beloging to a given suite.
 """
 
 # Copyright (c) 2014 Abhishek Bhattacharjee <abhishek.bhattacharjee11@gmail.com>
-# Copyright (c) 2014 Matthias Klumpp <mak@debian.org>
+# Copyright (c) 2014-2015 Matthias Klumpp <mak@debian.org>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -45,27 +45,6 @@ from daklib.config import Config
 from daklib.dbconn import *
 from daklib.dakmultiprocessing import DakProcessPool, PROC_STATUS_SUCCESS, PROC_STATUS_SIGNALRAISED
 
-# TODO: Convert to SQLAlchemy ORM
-# TODO: Move to dbconn.py
-class DEP11Metadata():
-
-    def __init__(self, session):
-        self._session = session
-
-    def insertdata(self, binid, yamldoc, hints, ignore):
-        d = {"bin_id": binid, "yaml_data": yamldoc, "hints": hints, "ignore": ignore}
-        sql = """insert into bin_dep11(binary_id,metadata,hints,ignore)
-        VALUES (:bin_id, :yaml_data, :hints, :ignore)"""
-        self._session.execute(sql, d)
-
-    def removedata(self, suitename):
-        sql = """delete from bin_dep11 where binary_id in
-        (select distinct(b.id) from binaries b,override o,suite s
-        where b.package = o.package and o.suite = s.id
-        and s.suite_name= :suitename)"""
-        self._session.execute(sql, {"suitename": suitename})
-        self._session.commit()
-
 def usage():
     print("""Usage: dak generate_metadata -s <suitename> [OPTION]
 Extract DEP-11 metadata for the specified suite.
@@ -80,20 +59,20 @@ class MetadataPool:
 
     def __init__(self, values):
         '''
-        Sets the archname of the metadata pool.
+        Initialize the metadata pool.
         '''
         self._values = values
         self._mcpts = dict()
 
-    def append_cptdata(self, arch, compdatalist):
+    def append_cptdata(self, arch, cptlist):
         '''
-        makes a list of all the DEP11Component objects in a arch pool
+        Makes a list of all the DEP11Component objects in a arch pool
         '''
         cpts = self._mcpts.get(arch)
         if not cpts:
             self._mcpts[arch] = dict()
             cpts = self._mcpts[arch]
-        for c in compdatalist:
+        for c in cptlist:
             if cpts.get(c.cid):
                 print("WARNING: Duplicate ID detected: %s" % (c.cid))
                 c.add_ignore_reason("Adding this component would duplicate the ID '%s'." % (c.cid))
@@ -119,7 +98,7 @@ class MetadataPool:
                                 explicit_end=False, width=100, indent=2,
                                 allow_unicode=True)
                 # store metadata in database
-                dep11.insertdata(cpt._binid, metadata, hints_str, cpt.has_ignore_reason())
+                dep11.insert_data(cpt._binid, cpt.cid, metadata, hints_str, cpt.has_ignore_reason())
         # commit all changes
         session.commit()
 
@@ -155,7 +134,7 @@ def extract_metadata(mde, sn, pkgname, metainfo_files, binid, package_fname, arc
 
 def process_suite(session, suite, logger, force=False):
     '''
-    Run by main to loop for different component and architecture.
+    Extract new metadata for a given suite.
     '''
     path = Config()["Dir::Pool"]
 
@@ -208,14 +187,13 @@ def process_suite(session, suite, logger, force=False):
         pool.close()
         pool.join()
 
-        # Save metadata of all binaries of the Components-arch
-        # This would require a lock
+        # save new metadata to the database
         dpool.export(session)
         make_icon_tar(suite.suite_name, component)
 
         logger.log(["Completed metadata extraction for suite %s/%s" % (suite.suite_name, component)])
 
-def write_component_files(session, suite):
+def write_component_files(session, suite, logger):
     '''
     Writes the metadata into Component-<arch>.yml.xz
     Ignores if ignore is True in the db
@@ -232,7 +210,7 @@ def write_component_files(session, suite):
         and ba.suite = :suite_id and b.architecture = :arch_id
         """
 
-    print("Writing DEP-11 files for %s" % (suite.suite_name))
+    logger.log(["Writing DEP-11 files for %s" % (suite.suite_name)])
     for c in suite.components:
         # writing per <arch>
         for arch in suite.architectures:
@@ -260,15 +238,14 @@ def write_component_files(session, suite):
                 ofile.write(doc[0])
             writer.close()
 
-def expire_dep11_data_cache(session, suitename):
+def expire_dep11_data_cache(session, suitename, logger):
     '''
-    Clears the stale cache items per suite.
+    Clears stale cache items per suite.
     '''
-    # dic that has pkg name as key and bin_ids as values in a list,
-    # these are not to be deleted
+
+    # list for metadata we want to keep
     keep = list()
-    dir_list = []
-    print("Clearing stale cached data...")
+
     # select all the binids with a package-name
     # (select all package-name from binaries)
     sql = """select bd.binary_id,b.package
@@ -283,10 +260,8 @@ def expire_dep11_data_cache(session, suitename):
     glob_tmpl = "%s/*/*" % (os.path.join(Config()["Dir::MetaInfo"], suitename))
     for fname in glob.glob(glob_tmpl):
         if not os.path.basename(fname) in keep:
-            print("Removing DEP-11 cache directory: %s" % (fname))
+            logger.log(["Expiring DEP-11 cache directory: %s" % (fname)])
             rmtree(fname)
-
-    print("Cache pruned.")
 
 def main():
     cnf = Config()
@@ -329,11 +304,11 @@ def main():
     suite = get_suite(suitename.lower(), session)
 
     if Options["ExpireCache"]:
-        expire_dep11_data_cache(session, suitename)
+        expire_dep11_data_cache(session, suitename, logger)
 
     process_suite(session, suite, logger)
     # export database content as Components-<arch>.xz YAML documents
-    write_component_files(session, suite)
+    write_component_files(session, suite, logger)
 
     # we're done
     logger.close()
