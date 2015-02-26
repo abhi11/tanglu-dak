@@ -75,7 +75,7 @@ class MetadataPool:
         for c in cptlist:
             if cpts.get(c.cid):
                 print("WARNING: Duplicate ID detected: %s" % (c.cid))
-                c.add_ignore_reason("Adding this component would duplicate the ID '%s'." % (c.cid))
+                c.add_error_hint("Adding this component would duplicate the ID '%s'." % (c.cid))
                 c.cid = "~%s%s" % (str(uuid.uuid4()), c.cid)
             cpts[c.cid] = c
 
@@ -90,15 +90,12 @@ class MetadataPool:
             for cpt in cpts.values():
                 # get the metadata in YAML format
                 metadata = cpt.to_yaml_doc()
-                hints_str = ""
-                hints = cpt.get_hints_dict()
-                if hints:
-                    hints_str = yaml.dump(hints, Dumper=DEP11YamlDumper,
-                                default_flow_style=False, explicit_start=True,
-                                explicit_end=False, width=100, indent=2,
-                                allow_unicode=True)
+                hints_yml = cpt.get_hints_yaml()
+                if not hints_yml:
+                    hints_yml = ""
+
                 # store metadata in database
-                dep11.insert_data(cpt._binid, cpt.cid, metadata, hints_str, cpt.has_ignore_reason())
+                dep11.insert_data(cpt._binid, cpt.cid, metadata, hints_yml, cpt.has_ignore_reason())
         # commit all changes
         session.commit()
 
