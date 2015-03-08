@@ -78,7 +78,6 @@ class MetaInfoFinder:
         (select binary_id from bin_dep11)
         """
 
-        # FIXME: We get only one hit for one arch for some reason...
         result = self._session.query("file", "filename", "name", "id",
                                      "arch_string", "package")\
                               .from_statement(sql).params(params)
@@ -226,17 +225,3 @@ class IconFinder(AbstractIconFinder):
 
     def set_allowed_icon_extensions(self, exts):
         self._allowed_exts = exts
-
-# For testing
-
-if __name__ == "__main__":
-    '''   # ##
-    ap = appdata()
-    ap.comb_appdata()
-    ap.printfiles()
-    # ##
-    #clear_cached_dep11_data()
-    '''
-    #test
-    f = IconFinder("amarok","amarok",140743,'aequorea','main')
-    f.get_icons()
