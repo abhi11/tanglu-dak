@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
 """
-Takes a .deb file as an argument and reads the metadata from
-diffrent sources such as the xml files in usr/share/appdata
-and .desktop files in usr/share/application. Also created
-screenshot cache and tarball of all the icons of packages
-beloging to a given suite.
+Processes all packages in a given suite to extract interesting metadata
+(mainly AppStream metainfo data). The data will be stored in
+the "bin_dep11" table.
+Additionally, a screenshot cache and tarball of all the icons of packages
+beloging to a given suite will be created.
 """
 
 # Copyright (c) 2014 Abhishek Bhattacharjee <abhishek.bhattacharjee11@gmail.com>
@@ -71,14 +71,13 @@ class MetadataPool:
         '''
         cpts = self._mcpts.get(arch)
         if not cpts:
-            self._mcpts[arch] = dict()
+            self._mcpts[arch] = list()
             cpts = self._mcpts[arch]
         for c in cptlist:
-            if cpts.get(c.cid):
-                print("WARNING: Duplicate ID detected: %s" % (c.cid))
-                c.add_error_hint("Adding this component would duplicate the ID '%s'." % (c.cid))
-                c.cid = "~%s%s" % (str(uuid.uuid4()), c.cid)
-            cpts[c.cid] = c
+            # TODO: Maybe check for duplicates here?
+            # Right now, we can easily filter them out later and complain about it at the maintainer side,
+            # so a hard-check on duplicate ids might not be necessary.
+            cpts.append(c)
 
     def export(self, session):
         """
@@ -88,7 +87,7 @@ class MetadataPool:
             values = self._values
             values['architecture'] = arch
             dep11 = DEP11Metadata(session)
-            for cpt in cpts.values():
+            for cpt in cpts:
                 # get the metadata in YAML format
                 metadata = cpt.to_yaml_doc()
                 hints_yml = cpt.get_hints_yaml()
