@@ -40,7 +40,7 @@ from dep11.component import DEP11Component, DEP11YamlDumper, get_dep11_header
 
 from daklib import daklog
 from daklib.daksubprocess import call, check_call
-from daklib.filewriter import DEP11DataFileWriter
+from daklib.filewriter import DEP11DataFileWriter, DEP11HintsFileWriter
 from daklib.config import Config
 from daklib.dbconn import *
 from daklib.dakmultiprocessing import DakProcessPool, PROC_STATUS_SUCCESS, PROC_STATUS_SIGNALRAISED
@@ -49,7 +49,8 @@ def usage():
     print("""Usage: dak generate_metadata -s <suitename> [OPTION]
 Extract DEP-11 metadata for the specified suite.
 
-  -e, --expire   Clear the icon/screenshot cache from stale data.
+  -e, --expire       Clear the icon/screenshot cache from stale data.
+  -h, --write-hints  Export YAML documents with issues found while processing the packages.
     """)
 
 class MetadataPool:
@@ -235,6 +236,51 @@ def write_component_files(session, suite, logger):
                 ofile.write(doc[0])
             writer.close()
 
+def write_hints_files(session, suite, logger):
+    '''
+    Writes the DEP-11 hints file (with issues and hints to improve the metadata)
+    into DEP11Hints-<component>_<arch>.yml.gz in Dir::MetaInfoHints.
+    '''
+
+    # SQL to fetch hints
+    sql = """
+        select distinct bd.hints
+        from
+        bin_dep11 bd, binaries b, bin_associations ba,
+        override o
+        where bd.binary_id = b.id and b.package = o.package
+        and o.component = :component_id and b.id = ba.bin
+        and ba.suite = :suite_id and b.architecture = :arch_id
+        """
+
+    logger.log(["Writing DEP-11 hints files for %s" % (suite.suite_name)])
+    for c in suite.components:
+        # writing per arch
+        for arch in suite.architectures:
+            if arch.arch_string == "source":
+                continue
+
+            head_string = get_dep11_header(suite.suite_name, c.component_name)
+
+            values = {
+                'archive'  : suite.archive.path,
+                'suite_id' : suite.suite_id,
+                'suite'    : suite.suite_name,
+                'component_id' : c.component_id,
+                'component'    : c.component_name,
+                'arch_id' : arch.arch_id,
+                'arch'    : arch.arch_string
+            }
+
+            writer = DEP11HintsFileWriter(Config()["Dir::MetaInfoHints"], **values)
+            ofile = writer.open()
+            ofile.write(head_string)
+
+            result = session.execute(sql, values)
+            for doc in result:
+                ofile.write(doc[0])
+            writer.close()
+
 def expire_dep11_data_cache(session, suitename, logger):
     '''
     Clears stale cache items per suite.
@@ -264,8 +310,9 @@ def main():
     cnf = Config()
 
     Arguments = [('h',"help","DEP11::Options::Help"),
-                 ('e',"expire","DEP11::Options::ExpireCache"),
                  ('s',"suite","DEP11::Options::Suite", "HasArg"),
+                 ('e',"expire","DEP11::Options::ExpireCache"),
+                 ('h',"write-hints","DEP11::Options::WriteHints"),
                  ]
     for i in ["help", "suite", "ExpireCache"]:
         if not cnf.has_key("DEP11::Options::%s" % (i)):
@@ -293,6 +340,9 @@ def main():
     if not cnf.has_key("DEP11::IconSizes"):
         print("You need to specify a list of allowed icon-sizes (DEP11::IconSizes)")
         sys.exit(1)
+    if Options["WriteHints"] and not cnf.has_key("Dir::MetaInfoHints"):
+        print("You need to specify an export directory for DEP-11 hints files (Dir::MetaInfoHints)")
+        sys.exit(1)
 
     logger = daklog.Logger('generate-metadata')
 
@@ -306,6 +356,9 @@ def main():
     process_suite(session, suite, logger)
     # export database content as Components-<arch>.xz YAML documents
     write_component_files(session, suite, logger)
+
+    if Options["WriteHints"]:
+        write_hints_files(session, suite, logger)
 
     # we're done
     logger.close()

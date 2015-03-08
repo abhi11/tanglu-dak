@@ -172,8 +172,21 @@ class DEP11DataFileWriter(BaseFileWriter):
         Output files are gzip compressed only.
         '''
         flags = {
-            'compression':['xz'],
+            'compression': ['xz'],
         }
         flags.update(keywords)
         template = "%(archive)s/dists/%(suite)s/%(component)s/Components-%(arch)s.yml"
+        BaseFileWriter.__init__(self, template, **flags)
+
+class DEP11HintsFileWriter(BaseFileWriter):
+    def __init__(self, destination, **keywords):
+        '''
+        The value of the keywords suite and component are strings.
+        Output files are gzip compressed only.
+        '''
+        flags = {
+            'compression': ['gzip'],
+        }
+        flags.update(keywords)
+        template = destination + "/%(suite)s/DEP11Hints-%(component)s_%(arch)s.yml"
         BaseFileWriter.__init__(self, template, **flags)
